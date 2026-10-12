@@ -9,11 +9,29 @@ permissions:
   contents: write
 
 concurrency:
-  group: production
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
+  ci:
+    name: 🧪 Run Quality Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 🛡️ Full Quality Gate
+        run: npm run check
+
   deploy:
+    name: 🌐 Deploy via SFTP
+    needs: ci
     runs-on: ubuntu-latest
     if: vars.PRODUCTION_PATH != ''
 
@@ -30,7 +48,13 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: ${{ secrets.FTP_PORT }}
-          source: './*'
+          source: |
+            *
+            !.*
+            !.git*
+            !tests*
+            !package*.json
+            !*.md
           target: '/home/platne/serwer417204/public_html/${{ vars.PRODUCTION_PATH }}/'
           overwrite: true
 
@@ -39,7 +63,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-      - name: Create production tag
+      - name: Create production release tag
         run: |
           VERSION="v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
           echo "Creating tag $VERSION"

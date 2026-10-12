@@ -6,11 +6,29 @@ on:
       - staging
 
 concurrency:
-  group: staging
+  group: deploy-staging
   cancel-in-progress: false
 
 jobs:
+  ci:
+    name: 🧪 Run Quality Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 🛡️ Full Quality Gate
+        run: npm run check
+
   deploy:
+    name: 🌐 Deploy via SFTP
+    needs: ci
     runs-on: ubuntu-latest
     if: vars.STAGING_PATH != ''
 
@@ -25,6 +43,12 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: ${{ secrets.FTP_PORT }}
-          source: './*'
+          source: |
+            *
+            !.*
+            !.git*
+            !tests*
+            !package*.json
+            !*.md
           target: '/home/platne/serwer417204/public_html/${{ vars.STAGING_PATH }}/'
           overwrite: true

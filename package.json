@@ -8,6 +8,9 @@
     "test": "node --test tests/unit/*.test.js",
     "test:coverage": "node --test --experimental-test-coverage tests/unit/*.test.js",
     "test:watch": "node --test --watch tests/unit/*.test.js",
+    "check:syntax": "node --check assets/js/main.js",
+    "check": "npm run check:syntax && npm test",
+    "prepare": "git config core.hooksPath .githooks || true",
     "audit:lighthouse": "lhci autorun"
   },
   "devDependencies": {

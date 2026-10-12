@@ -72,13 +72,14 @@ W standardzie TwojaStronaWWW:
 ```plaintext
 _site-template/
 ├── .github/
-│   ├── dependabot.yml              # Automatyczne comiesięczne aktualizacje akcji
+│   ├── dependabot.yml              # Automatyczne comiesięczne aktualizacje akcji i npm
 │   └── workflows/
-│       ├── ci.yml                  # Testy jednostkowe + walidacja PHP + Lighthouse
-│       ├── deploy-staging.yml      # Bezpieczny transfer SFTP na staging LH
+│       ├── ci.yml                  # Quality Gate + walidacja PHP + testy + Lighthouse CI
+│       ├── deploy-staging.yml      # Bezpieczny transfer SFTP na staging LH (z Quality Gate)
 │       └── deploy-production.yml   # Wdrożenie produkcyjne + automatyczny git tag
 ├── .githooks/
-│   └── pre-commit                  # Lokalny strażnik jakości (uruchamia npm test)
+│   ├── pre-commit                  # Lokalny strażnik jakości (blokada .env i npm run check)
+│   └── commit-msg                  # Strażnik Conventional Commits (wzorowane na Gal Anonim)
 ├── assets/
 │   ├── css/
 │   │   └── main.css                # Responsywny system stylów (reset, zmienne, Dark Mode)
@@ -90,9 +91,13 @@ _site-template/
 │   │   └── mock-dom.js             # Lekki mock przeglądarki w czystym Node.js
 │   └── unit/
 │       ├── html-integrity.test.js  # Weryfikacja struktury HTML5 i standardów WCAG
-│       └── main.test.js            # Uniwersalne testy interakcji UI (ARIA, Escape)
+│       ├── main.test.js            # Uniwersalne testy interakcji UI (ARIA, Escape)
+│       └── repo-hygiene.test.js    # Czystość repozytorium (brak konfliktów, hooki, SEO)
+├── .gitattributes                  # Normalizacja LF dla skryptów/hooków i obsługa binary
 ├── .gitignore                      # Ignorowanie node_modules, .env, coverage
 ├── .lighthouserc.json              # Konfiguracja progów audytu Lighthouse CI
+├── favicon.ico                     # Wielorozdzielczy favicon (16x16, 32x32, 48x48)
+├── site.webmanifest                # Manifest PWA (theme-color, standalone)
 ├── index.html                      # Semantyczny szkielet HTML5 (WCAG 2.1)
 ├── package.json                    # Konfiguracja skryptów npm (bez frameworków)
 ├── robots.txt                      # Szablon indeksowania dla botów
@@ -113,6 +118,9 @@ _site-template/
     "test": "node --test tests/unit/*.test.js",
     "test:coverage": "node --test --experimental-test-coverage tests/unit/*.test.js",
     "test:watch": "node --test --watch tests/unit/*.test.js",
+    "check:syntax": "node --check assets/js/main.js",
+    "check": "npm run check:syntax && npm test",
+    "prepare": "git config core.hooksPath .githooks || true",
     "audit:lighthouse": "lhci autorun"
   },
   "devDependencies": {
@@ -122,7 +130,9 @@ _site-template/
 ```
 
 * **`npm test`**: Błyskawiczne wykonanie testów jednostkowych w czystym Node.js.
+* **`npm run check`**: Pełny zestaw walidacji (składnia JS + testy jednostkowe).
 * **`npm run test:coverage`**: Generowanie raportu pokrycia linii i gałęzi.
+* **`npm run prepare`**: Automatyczna rejestracja hooków gita w `.githooks`.
 * **`npm run test:watch`**: Tryb developerski automatycznie powtarzający testy przy zapisie pliku.
 
 ---
