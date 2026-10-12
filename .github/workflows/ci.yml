@@ -16,37 +16,49 @@ concurrency:
 
 jobs:
   validate:
+    name: 1. Quality Gate & Testy Jednostkowe
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: 1.1 Pobranie kodu repozytorium
         uses: actions/checkout@v4
 
       # 1️⃣ Sprawdź czy istnieje index.html lub index.php
-      - name: Check main entry file exists
+      - name: 1.2 Sprawdzenie pliku wejściowego (index.html lub index.php)
         run: |
           if [ ! -f index.html ] && [ ! -f index.php ]; then
-            echo "No index.html or index.php found!"
+            echo "Brak pliku index.html lub index.php!"
             exit 1
           fi
 
       # 2️⃣ Sprawdź czy nie commitujesz .env
-      - name: Prevent committing .env
+      - name: 1.3 Ochrona przed wyciekiem .env
         run: |
           if git ls-files | grep -E "\.env$"; then
-            echo ".env file detected in repository!"
+            echo "Wykryto plik .env w repozytorium!"
             exit 1
           fi
 
-      # 3️⃣ Walidacja składni PHP
-      - name: Validate PHP syntax
+      # 3️⃣ Walidacja składni PHP (jeśli występują pliki PHP)
+      - name: 1.4 Walidacja składni PHP
         run: |
           if find . -type f -name "*.php" | grep -q .; then
-            echo "Checking PHP syntax..."
+            echo "Sprawdzanie składni PHP..."
             find . -type f -name "*.php" -print0 | xargs -0 -n1 php -l
           else
-            echo "No PHP files found, skipping PHP validation."
+            echo "Brak plików PHP, pomijanie walidacji PHP."
           fi
 
-      - name: CI Passed
-        run: echo "All checks passed successfully."
+      # 4️⃣ Konfiguracja Node.js i testy jednostkowe
+      - name: 1.5 Konfiguracja środowiska Node.js
+        if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 1.6 Uruchomienie testów jednostkowych (node:test)
+        if: hashFiles('package.json') != ''
+        run: npm test -- --experimental-test-coverage
+
+      - name: 1.7 CI Quality Gate Passed
+        run: echo "Wszystkie testy i reguły walidacji zakończone sukcesem."

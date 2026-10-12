@@ -1,0 +1,16 @@
+{
+  "name": "site-template",
+  "version": "1.0.0",
+  "description": "Enterprise Starter Template - Vanilla Web with CI/CD & Unit Tests",
+  "main": "assets/js/main.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/unit/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage tests/unit/*.test.js",
+    "test:watch": "node --test --watch tests/unit/*.test.js",
+    "audit:lighthouse": "lhci autorun"
+  },
+  "devDependencies": {
+    "@lhci/cli": "^0.14.0"
+  }
+}

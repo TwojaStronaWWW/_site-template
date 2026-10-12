@@ -1,0 +1,22 @@
+#!/bin/sh
+echo "🔍 [Pre-commit] Sprawdzanie jakości kodu przed zatwierdzeniem commita..."
+
+# 1. Blokada przypadkowego commitowania sekretów .env
+if git diff --cached --name-only | grep -E "\.env$"; then
+  echo "❌ BŁĄD: Wykryto plik .env w paczce do zatwierdzenia!"
+  echo "Usuń plik z indeksu poleceniem: git reset HEAD .env"
+  exit 1
+fi
+
+# 2. Uruchomienie testów jednostkowych
+if [ -f package.json ]; then
+  npm test
+  RESULT=$?
+  if [ $RESULT -ne 0 ]; then
+    echo "❌ BŁĄD: Testy jednostkowe nie przeszły! Popraw kod przed zatwierdzeniem."
+    exit 1
+  fi
+fi
+
+echo "✅ [Pre-commit] Wszystkie testy zaliczone. Commit dopuszczony."
+exit 0
