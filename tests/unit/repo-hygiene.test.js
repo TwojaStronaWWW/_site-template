@@ -62,11 +62,22 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     scanDir(ROOT_DIR);
   });
 
-  it('pliki dokumentacji i zasad AGENTS.md, README.md, BLUEPRINT.md oraz ROADMAP.template.md powinny istnieć', () => {
+  it('pliki dokumentacji i zasad AGENTS.md, GEMINI.md, README.md, BLUEPRINT.md oraz ROADMAP.template.md powinny istnieć', () => {
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'AGENTS.md')), 'Brak AGENTS.md');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'GEMINI.md')), 'Brak GEMINI.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'README.md')), 'Brak README.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'BLUEPRINT.md')), 'Brak BLUEPRINT.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'ROADMAP.template.md')), 'Brak ROADMAP.template.md');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'pull_request_template.md')), 'Brak .github/pull_request_template.md');
+  });
+
+  it('plik .gitignore chroni sesje PHP, logi i dane leadów CSV (ISO 27001)', () => {
+    const gitignorePath = path.join(ROOT_DIR, '.gitignore');
+    assert.ok(fs.existsSync(gitignorePath), 'Brak .gitignore');
+    const content = fs.readFileSync(gitignorePath, 'utf-8');
+    assert.match(content, /api\/sessions\/\*/i);
+    assert.match(content, /api\/rate_limits\/\*\.json/i);
+    assert.match(content, /api\/leads_\*\.csv/i);
   });
 
   it('git hook (.githooks/pre-commit) powinien istnieć, posiadać shebang bash i uruchamiać npm run check', () => {
@@ -108,6 +119,7 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     assert.ok(config.ci.assert && config.ci.assert.assertions, 'Brak definicji asercji w lighthouserc.json');
     assert.ok(config.ci.assert.assertions['categories:accessibility']);
     assert.ok(config.ci.assert.assertions['categories:seo']);
+    assert.ok(config.ci.collect && config.ci.collect.url, 'Brak definicji url w collect');
   });
 
   it('pliki robots.txt, sitemap.xml, site.webmanifest oraz favicon.ico powinny istnieć i definiować poprawne reguły', () => {

@@ -10,6 +10,13 @@ node_modules/
 coverage/
 dist/
 
+# PHP sessions, logs & flat-file CRM data (ISO 27001 / Zero Data Leakage)
+api/sessions/*
+!api/sessions/.gitkeep
+api/rate_limits/*.json
+api/leads_*.csv
+*.log
+
 # OS metadata
 .DS_Store
 Thumbs.db
