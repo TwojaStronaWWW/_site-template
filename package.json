@@ -11,7 +11,9 @@
     "check:syntax": "node --check assets/js/main.js",
     "check": "npm run check:syntax && npm test",
     "prepare": "git config core.hooksPath .githooks || true",
-    "audit:lighthouse": "lhci autorun"
+    "audit:lighthouse": "lhci autorun",
+    "serve": "node scripts/serve.js",
+    "dev": "node scripts/serve.js"
   },
   "devDependencies": {
     "@lhci/cli": "^0.14.0"

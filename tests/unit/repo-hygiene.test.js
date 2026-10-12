@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.join(__dirname, '..', '..');
 
 describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-template)', () => {
-  it('plik package.json powinien posiadać wymagane skrypty CI (test, check, check:syntax, prepare)', () => {
+  it('plik package.json powinien posiadać wymagane skrypty CI (test, check, check:syntax, prepare, serve, dev)', () => {
     const pkgPath = path.join(ROOT_DIR, 'package.json');
     assert.ok(fs.existsSync(pkgPath), 'Brak package.json');
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
@@ -20,6 +20,8 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     assert.ok(pkg.scripts['check:syntax'], 'Brak skryptu check:syntax');
     assert.ok(pkg.scripts.check, 'Brak skryptu check');
     assert.ok(pkg.scripts.prepare, 'Brak skryptu prepare');
+    assert.ok(pkg.scripts.serve, 'Brak skryptu serve');
+    assert.ok(pkg.scripts.dev, 'Brak skryptu dev');
   });
 
   it('konfiguracja CI/CD (.github/workflows) powinna posiadać ci.yml, deploy-staging.yml oraz deploy-production.yml', () => {
@@ -60,10 +62,11 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     scanDir(ROOT_DIR);
   });
 
-  it('pliki dokumentacji i zasad AGENTS.md, README.md oraz BLUEPRINT.md powinny istnieć', () => {
+  it('pliki dokumentacji i zasad AGENTS.md, README.md, BLUEPRINT.md oraz ROADMAP.template.md powinny istnieć', () => {
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'AGENTS.md')), 'Brak AGENTS.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'README.md')), 'Brak README.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'BLUEPRINT.md')), 'Brak BLUEPRINT.md');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'ROADMAP.template.md')), 'Brak ROADMAP.template.md');
   });
 
   it('git hook (.githooks/pre-commit) powinien istnieć, posiadać shebang bash i uruchamiać npm run check', () => {
@@ -128,5 +131,12 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     const content = fs.readFileSync(dependabotPath, 'utf-8');
     assert.match(content, /package-ecosystem:\s*"github-actions"/i);
     assert.match(content, /package-ecosystem:\s*"npm"/i);
+  });
+
+  it('szablony zgłoszeń GitHub (.github/ISSUE_TEMPLATE) oraz serwer deweloperski powinny istnieć', () => {
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'ISSUE_TEMPLATE', 'bug_report.yml')), 'Brak bug_report.yml');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'ISSUE_TEMPLATE', 'task.yml')), 'Brak task.yml');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'ISSUE_TEMPLATE', 'config.yml')), 'Brak config.yml');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'scripts', 'serve.js')), 'Brak scripts/serve.js');
   });
 });
