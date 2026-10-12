@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 
-describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-template)', () => {
+describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
   it('plik package.json powinien posiadać wymagane skrypty CI (test, check, check:syntax, prepare, serve, dev)', () => {
     const pkgPath = path.join(ROOT_DIR, 'package.json');
     assert.ok(fs.existsSync(pkgPath), 'Brak package.json');
@@ -36,7 +36,7 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
   });
 
   it('kluczowe pliki źródłowe nie mogą zawierać pozostałości po konfliktach gita (merge conflict markers)', () => {
-    const extensionsToCheck = ['.html', '.js', '.css', '.json', '.yml', '.md'];
+    const extensionsToCheck = ['.html', '.js', '.css', '.json', '.yml', '.md', '.php'];
     const CONFLICT_START = '<<<<<<<' + ' ';
     const CONFLICT_END = '>>>>>>>' + ' ';
 
@@ -62,13 +62,25 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     scanDir(ROOT_DIR);
   });
 
-  it('pliki dokumentacji i zasad AGENTS.md, GEMINI.md, README.md, BLUEPRINT.md oraz ROADMAP.template.md powinny istnieć', () => {
+  it('pliki dokumentacji i standardów AGENTS.md, GEMINI.md, README.md, BLUEPRINT.md, ROADMAP.template.md, SECURITY.md, LICENSE oraz .editorconfig powinny istnieć', () => {
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'AGENTS.md')), 'Brak AGENTS.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'GEMINI.md')), 'Brak GEMINI.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'README.md')), 'Brak README.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'BLUEPRINT.md')), 'Brak BLUEPRINT.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'ROADMAP.template.md')), 'Brak ROADMAP.template.md');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'SECURITY.md')), 'Brak SECURITY.md');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'LICENSE')), 'Brak LICENSE');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.editorconfig')), 'Brak .editorconfig');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'pull_request_template.md')), 'Brak .github/pull_request_template.md');
+  });
+
+  it('katalogi api/sessions oraz api/rate_limits posiadają ochronę .htaccess (Deny from all)', () => {
+    const sessionsHt = path.join(ROOT_DIR, 'api', 'sessions', '.htaccess');
+    const rateLimitsHt = path.join(ROOT_DIR, 'api', 'rate_limits', '.htaccess');
+    assert.ok(fs.existsSync(sessionsHt), 'Brak .htaccess w api/sessions');
+    assert.ok(fs.existsSync(rateLimitsHt), 'Brak .htaccess w api/rate_limits');
+    assert.match(fs.readFileSync(sessionsHt, 'utf-8'), /Deny from all/i);
+    assert.match(fs.readFileSync(rateLimitsHt, 'utf-8'), /Deny from all/i);
   });
 
   it('plik .gitignore chroni sesje PHP, logi i dane leadów CSV (ISO 27001)', () => {
@@ -90,7 +102,7 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     assert.ok(content.includes('npm run check'), 'Hook pre-commit nie wywołuje komendy npm run check');
   });
 
-  it('git hook (.githooks/commit-msg) powinien weryfikować format Conventional Commits (jak w Gal Anonim)', () => {
+  it('git hook (.githooks/commit-msg) powinien weryfikować format Conventional Commits', () => {
     const hookPath = path.join(ROOT_DIR, '.githooks', 'commit-msg');
     assert.ok(fs.existsSync(hookPath), 'Brak .githooks/commit-msg');
     const content = fs.readFileSync(hookPath, 'utf-8');
