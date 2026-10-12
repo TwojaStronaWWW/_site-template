@@ -60,7 +60,8 @@ describe('Higiena repozytorium (Repo Hygiene wzorowane na Gal Anonim i _site-tem
     scanDir(ROOT_DIR);
   });
 
-  it('pliki dokumentacji README.md oraz BLUEPRINT.md powinny istnieć', () => {
+  it('pliki dokumentacji i zasad AGENTS.md, README.md oraz BLUEPRINT.md powinny istnieć', () => {
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'AGENTS.md')), 'Brak AGENTS.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'README.md')), 'Brak README.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'BLUEPRINT.md')), 'Brak BLUEPRINT.md');
   });
