@@ -20,3 +20,5 @@ api/leads_*.csv
 # OS metadata
 .DS_Store
 Thumbs.db
+
+.wrangler/
