@@ -175,5 +175,24 @@ git commit -m "feat: Implementation of site views and SEO configuration"
 1. **Staging:** `git push origin staging`
 2. **Produkcja:** `git push origin main`
 
+
+---
+
+### Krok 9: (Opcjonalnie) Bezpieczny moduł pozyskiwania leadów i formularza kontaktowego (PHP Flat-File CRM)
+Dla serwisów firmowych wymagających obsługi formularza kontaktowego bez relacyjnej bazy danych (jak w `twojastronawww`):
+1. **Architektura bezbazy danych (Flat-File CSV):**
+   - Eliminacja podatności na ataki SQL Injection dzięki zapisowi do plików CSV.
+   - Atomowy zapis z blokadą wyłączną `LOCK_EX` (`flock($fp, LOCK_EX)`), zapobiegający uszkodzeniu pliku przy współbieżnych zgłoszeniach.
+2. **Ochrona transakcyjna CSRF i nagłówków:**
+   - Wydawanie jednorazowego tokenu CSRF (`api/get-csrf-token.php`) przypisanego do sesji.
+   - Weryfikacja nagłówka `Origin` lub `Referer` w `api/contact.php`.
+3. **Mitygacja spamu i botów:**
+   - Pole-pułapka Honeypot (ukryte dla użytkowników CSS-em, natychmiastowe odrzucenie wypełnionych formularzy botów).
+   - Rate-limiter IP oparty na plikach liczników w `api/rate_limits/`.
+4. **Zgodność z ISO 27001 (Zero Data Leakage):**
+   - W `.htaccess` w katalogach `api/sessions/` oraz `api/rate_limits/` bezwzględna reguła `Deny from all`.
+   - W `.gitignore` reguły: `api/sessions/*`, `api/rate_limits/*.json`, `api/leads_*.csv` oraz `*.log`.
+
 ---
 *Dokumentacja przygotowana dla ekosystemu TwojaStronaWWW.*
+
