@@ -15,6 +15,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: vars.PRODUCTION_PATH != ''
 
     steps:
       - name: Checkout repository
@@ -23,7 +24,6 @@ jobs:
           fetch-depth: 0
 
       - name: Deploy via SFTP
-        if: vars.PRODUCTION_PATH != '' && secrets.FTP_SERVER != ''
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.FTP_SERVER }}
@@ -34,18 +34,12 @@ jobs:
           target: '/home/platne/serwer417204/public_html/${{ vars.PRODUCTION_PATH }}/'
           overwrite: true
 
-      - name: Informacja o pominięciu wdrożenia
-        if: vars.PRODUCTION_PATH == '' || secrets.FTP_SERVER == ''
-        run: echo "Pomijanie wdrożenia SFTP - brak zdefiniowanych PRODUCTION_PATH lub FTP_SERVER (prawidłowe dla repozytorium szablonu)."
-
       - name: Configure Git
-        if: vars.PRODUCTION_PATH != ''
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
       - name: Create production tag
-        if: vars.PRODUCTION_PATH != ''
         run: |
           VERSION="v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
           echo "Creating tag $VERSION"
