@@ -27,6 +27,11 @@ Niniejszy dokument stanowi kompletny, ustandaryzowany przewodnik po architekturz
    - [Krok 8: Wypchnięcie kodu na Staging i Production](#krok-8-wypchnięcie-kodu-na-staging-i-production)
    - [Krok 9: Bezpieczny moduł pozyskiwania leadów i formularza kontaktowego (PHP Flat-File CRM)](#krok-9-bezpieczny-moduł-pozyskiwania-leadów-i-formularza-kontaktowego-php-flat-file-crm)
    - [Krok 10: Standard konfiguracji Cloudflare & automatyczny Purge Cache (CDN / DNS)](#krok-10-standard-konfiguracji-cloudflare--automatyczny-purge-cache-cdn--dns)
+   - [Krok 11: Architektura Multi-Site / Subdomain / Monorepo & Pre-Deploy Remote Backup](#krok-11-architektura-multi-site--subdomain--monorepo--pre-deploy-remote-backup)
+   - [Krok 12: Zaawansowana mitygacja botów i ochrona formularzy (Multi-Layer Bot Mitigation)](#krok-12-zaawansowana-mitygacja-botów-i-ochrona-formularzy-multi-layer-bot-mitigation)
+   - [Krok 13: Natywna walidacja schematów danych (JSON & Markdown) w node:test](#krok-13-natywna-walidacja-schematów-danych-json--markdown-w-nodetest)
+   - [Krok 14: Natywne Web Audio i MediaSession API (Lockscreen Controls)](#krok-14-natywne-web-audio-i-mediasession-api-lockscreen-controls)
+   - [Krok 15: Zero-Dependency Link & Asset Integrity Checker w potoku CI](#krok-15-zero-dependency-link--asset-integrity-checker-w-potoku-ci)
 
 ---
 
@@ -218,5 +223,125 @@ Dla witryn korzystających z ochrony i przyspieszania Cloudflare CDN/Proxy:
    - Zdjęcia i pliki multimedialne przechowywane są w dedykowanym zasobniku Cloudflare R2 (`<projekt>-media`) i serwowane z subdomeny `https://media.twojadomena.pl/`.
    - Do komunikacji z bucketem służy natywny, bezbiblioteczny klient `api/R2Client.php` (AWS SigV4).
 
+
 ---
-*Dokumentacja inżynieryjna platformy TwojaStronaWWW.*
+
+### Krok 11: Architektura Multi-Site / Subdomain / Monorepo & Pre-Deploy Remote Backup
+Dla projektów łączących wiele powiązanych portali lub subdomen w jednym repozytorium (wzorowane na Kato Salsa Hub & DancePuls):
+1. **Separacja katalogów i routing lokalny:**
+   - Każda aplikacja/portal znajduje się w dedykowanym katalogu (np. `portal.pl/` oraz `subdomain.pl/`).
+   - Wbudowany serwer deweloperski `scripts/serve.js` obsługuje routing do obu witryn na jednym porcie (np. `http://localhost:3000/` dla portalu głównego i `http://localhost:3000/subdomain/` dla subdomeny) lub na osobnych portach bez zewnętrznych zależności.
+2. **Pre-Deploy Snapshot (Zdalny backup przed wdrożeniem):**
+   - Zanim potok CI/CD nadpisze pliki na serwerze produkcyjnym, pobierany jest automatyczny snapshot istniejących plików przez SFTP/lftp:
+     ```yaml
+     - name: Pobierz aktualną wersję z serwera (Snapshot)
+       run: |
+         sudo apt-get install -y -qq lftp > /dev/null 2>&1
+         mkdir -p backup/portal backup/subdomain
+         lftp -u "${{ secrets.FTP_USERNAME }}","${{ secrets.FTP_PASSWORD }}" \
+           -p 40022 sftp://${{ secrets.FTP_SERVER }} \
+           -e "
+             set net:timeout 60;
+             set sftp:auto-confirm yes;
+             mirror --verbose /home/platne/serwer417204/public_html/${{ env.MAIN_PATH }} ./backup/portal;
+             mirror --verbose /home/platne/serwer417204/public_html/${{ env.SUB_PATH }} ./backup/subdomain;
+             quit
+           "
+     - name: Zapisz backup jako artefakt
+       uses: actions/upload-artifact@v4
+       with:
+         name: backup-${{ github.ref_name }}-${{ github.run_number }}
+         path: backup/
+         retention-days: 7
+     ```
+   - Gwarancja natychmiastowego rollbacku w razie awarii z poziomu zakładki Actions na GitHubie.
+
+---
+
+### Krok 12: Zaawansowana mitygacja botów i ochrona formularzy (Multi-Layer Bot Mitigation)
+Wzorzec wypracowany w Kato Salsa Hub i zaimplementowany w `api/contact.php`:
+1. **Wielopolowy Honeypot z Cichym Sukcesem (200 OK):**
+   - Zamiast jednego pola, boty sprawdzają kilka popularnych nazw (`website_url`, `hp_chk`, `website`, `company_name`, `phone_extra`).
+   - Gdy którekolwiek pole zostanie wypełnione, backend zwraca kod 200 OK z komunikatem „Wiadomość wysłana pomyślnie!”. Bot uważa misję za zakończoną i nie ponawia ataku, nie obciążając bazy ani skrzynek pocztowych.
+2. **Wymóg wykonania kodu JavaScript w przeglądarce (`js_check`):**
+   - Formularz na frontendzie w momencie submitu generuje token `js_check`.
+   - Proste curl-boty wysyłające POST bezpośrednio na endpoint bez renderowania i wykonania JS są natychmiast ignorowane.
+3. **Pomiar czasu interakcji (`submission_seconds >= 2.5s`):**
+   - Człowiek fizycznie potrzebuje co najmniej 3-5 sekund na przeczytanie i wypełnienie pól.
+   - Formularz mierzy czas od otwarcia/pierwszej interakcji do kliknięcia wyślij. Zgłoszenia poniżej 2.5 sekundy są odrzucane.
+4. **Filtry antyspamowe treści:**
+   - Wykrywanie niepożądanego alfabetu (np. `preg_match('/\p{Cyrillic}/u', $message)`).
+   - Ograniczenie liczby linków URL w wiadomości (`preg_match_all('/https?:\/\//i', $message) > 2`).
+5. **Hybrydowa integracja zgłoszeń (Helpdesk API / Email Fallback):**
+   - Bezpośrednie wysyłanie zgłoszenia do wewnętrznego API osTicket / Helpdesku, a w razie niedostępności natychmiastowy fallback do wiadomości e-mail.
+
+---
+
+### Krok 13: Natywna walidacja schematów danych (JSON & Markdown) w node:test
+Dla projektów przechowujących bazy wiedzy, wydarzeń lub słowników w plikach JSON i Markdown:
+1. **Walidacja spójności bez zewnętrznych bibliotek:**
+   - Brak konieczności instalowania bibliotek typu Zod, Yup czy Joi.
+   - Weryfikacja struktury tablic, wymaganych kluczy, typów pól i niepustych wartości w dedykowanym teście `tests/unit/data-schema.test.js`:
+     ```javascript
+     const { describe, it } = require('node:test');
+     const assert = require('node:assert/strict');
+     const fs = require('node:fs');
+
+     describe('Walidacja schematu danych JSON', () => {
+       it('każdy wpis w bazie musi posiadać unikalne ID i wymagane atrybuty', () => {
+         const data = JSON.parse(fs.readFileSync('data.json', 'utf-8'));
+         assert.ok(Array.isArray(data) && data.length > 0);
+         for (const item of data) {
+           assert.ok(item.id && typeof item.id === 'string');
+           assert.ok(item.title && typeof item.title === 'string');
+         }
+       });
+     });
+     ```
+2. **Ochrona przed uszkodzeniem layoutu:** Test uniemożliwia wdrożenie pliku JSON z uszkodzonym formatowaniem lub brakującymi polami.
+
+---
+
+### Krok 14: Natywne Web Audio i MediaSession API (Lockscreen Controls)
+Dla aplikacji odtwarzających streaming radiowy, podcasty lub muzykę (wzorowane na Kato Salsa Hub Radio Player):
+1. **Platform-First Audio:** Wykorzystanie standardowego elementu `<audio>` z atrybutami dostępności (`aria-label`, stany ARIA).
+2. **Integracja z MediaSession API:**
+   - Synchronizacja metadanych utworu, okładki, nazwy audycji oraz sterowania z systemem operacyjnym użytkownika:
+     ```javascript
+     if ('mediaSession' in navigator) {
+       navigator.mediaSession.metadata = new MediaMetadata({
+         title: 'Kato Salsa Hub Radio',
+         artist: 'Salsa, Bachata & Kizomba Live Stream',
+         artwork: [
+           { src: '/assets/images/radio-cover-512.png', sizes: '512x512', type: 'image/png' }
+         ]
+       });
+       navigator.mediaSession.setActionHandler('play', () => audio.play());
+       navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+     }
+     ```
+   - Użytkownik może pauzować i wznawiać odtwarzanie bezpośrednio z ekranu blokady telefonu, paska powiadomień lub smartwatcha.
+
+---
+
+### Krok 15: Zero-Dependency Link & Asset Integrity Checker w potoku CI
+1. **Eliminacja błędów 404 w zasobach statycznych:**
+   - W potoku CI wykonywany jest skrypt weryfikujący, czy każdy lokalny plik zadeklarowany w tagach `src="..."` oraz `href="..."` fizycznie istnieje w drzewie repozytorium:
+     ```bash
+     for html_file in $(find . -maxdepth 2 -name "*.html" -not -path "*/node_modules/*"); do
+       [ -f "$html_file" ] || continue
+       base=$(dirname "$html_file")
+       grep -oP '(?:src|href)="(?!https?://|#|javascript:|mailto:|tel:)([^"]+)"' "$html_file" 2>/dev/null | \
+       sed 's/.*="\(.*\)"/\1/' | sed 's/?.*//' | \
+       while read -r ref; do
+         if [ ! -f "$base/$ref" ] && [ ! -d "$base/$ref" ]; then
+           echo "❌ BRAK ZASOBU: $html_file → $ref"
+           exit 1
+         fi
+       done
+     done
+     ```
+   - Skrypt natychmiast przerywa build w przypadku literówki w nazwie grafiki, arkusza stylów lub brakującego pliku widoku.
+
+---
+*Dokumentacja inżynierska platformy TwojaStronaWWW.*
