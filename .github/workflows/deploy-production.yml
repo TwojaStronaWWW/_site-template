@@ -42,7 +42,7 @@ jobs:
           fetch-depth: 0
 
       - name: Deploy via SFTP
-        uses: appleboy/scp-action@master
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
@@ -58,7 +58,7 @@ jobs:
           target: '/home/platne/serwer417204/public_html/${{ vars.PRODUCTION_PATH }}/'
           overwrite: true
 
-            - name: ⚡ Purge Cloudflare Cache (optional)
+      - name: ⚡ Purge Cloudflare Cache (optional)
         if: env.CF_ZONE != '' && env.CF_TOKEN != ''
         env:
           CF_ZONE: ${{ secrets.CLOUDFLARE_ZONE }}
@@ -86,4 +86,3 @@ jobs:
             git tag "$VERSION"
             git push origin "$VERSION"
           fi
-

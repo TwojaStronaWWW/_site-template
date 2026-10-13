@@ -14,6 +14,9 @@
     "audit:lighthouse": "lhci autorun",
     "serve": "node scripts/serve.js",
     "dev": "node scripts/serve.js",
+    "dev:docker": "docker compose up",
+    "preview:share": "powershell -ExecutionPolicy Bypass -File scripts/preview-tunnel.ps1",
+    "tunnel": "powershell -ExecutionPolicy Bypass -File scripts/preview-tunnel.ps1",
     "media:r2": "php scripts/migrate-to-r2.php"
   },
   "devDependencies": {

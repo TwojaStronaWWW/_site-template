@@ -133,6 +133,12 @@ npm run prepare
 
 # 6. Lokalny serwer developerski HTTP (zero-dependency)
 npm run serve
+
+# 7. Szyfrowany podgląd na żywo dla klienta przez Cloudflare Quick Tunnel (bez konfiguracji DNS)
+npm run preview:share
+
+# 8. Lokalne środowisko full-stack PHP 8.3 + Apache w Dockerze (obsługa formularzy i .htaccess)
+npm run dev:docker
 ```
 
 ---
@@ -162,3 +168,4 @@ npm run serve
 * **Wdrożenie i Standardy:** [TwojaStronaWWW](https://github.com/TwojaStronaWWW)
 * **Architektura & Engineering:** Krzysztof Początek
 * **Licencja:** [TwojaStronaWWW Proprietary](LICENSE) (Wszelkie prawa zastrzeżone)
+

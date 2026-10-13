@@ -343,5 +343,39 @@ Dla aplikacji odtwarzających streaming radiowy, podcasty lub muzykę (wzorowane
      ```
    - Skrypt natychmiast przerywa build w przypadku literówki w nazwie grafiki, arkusza stylów lub brakującego pliku widoku.
 
+### Krok 16: Błyskawiczny Podgląd Krawędziowy (Cloudflare Quick Tunnel)
+1. **Zastosowanie:**
+   - Prezentacja postępów klientowi oraz weryfikacja responsywności na urządzeniach mobilnych bez konieczności utrzymywania subdomen testowych (test.nazwa.pl) ani otwierania portów w routerze.
+2. **Uruchomienie:**
+   ``bash
+   npm run serve
+   # W drugim terminalu:
+   npm run preview:share
+   ``
+   - Skrypt scripts/preview-tunnel.ps1 / scripts/preview-tunnel.sh uruchamia kontener cloudflare/cloudflared łączący lokalny port 3000 z siecią Cloudflare pod domeną *.trycloudflare.com.
+   - Zakończenie procesu (Ctrl+C) natychmiastowo niszczy tunel.
+
+---
+
+### Krok 17: Środowisko Lokalne Docker (PHP 8.3 Full-Stack Parity)
+1. **Zastosowanie:**
+   - Weryfikacja formularza pi/contact.php, mechanizmu CSRF, rate-limitera oraz reguł .htaccess na stacjach roboczych bez zainstalowanego lokalnie PHP lub Apache.
+2. **Uruchomienie:**
+   ``bash
+   npm run dev:docker
+   ``
+   - Kontener php:8.3-apache montuje katalog projektu w /var/www/html z włączonymi modułami ewrite i headers.
+   - Środowisko dostępne pod adresem http://localhost:8080.
+
+---
+
+### Krok 18: Rejestracja w Centralnym Monitoringu VPS (Uptime Kuma & Ntfy)
+1. **Zastosowanie:**
+   - Ciągły monitoring dostępności witryny 24/7/365, czasu odpowiedzi oraz ważności certyfikatu SSL.
+2. **Procedura:**
+   - Po wdrożeniu na serwer produkcyjny, witrynę rejestruje się w panelu https://monitoring.twojastronawww.pl.
+   - Konfiguracja: Monitor HTTP(s), interwał 60s, powiadomienia na kanał Ntfy kpoczatek-vps-alerty.
+
 ---
 *Dokumentacja inżynierska platformy TwojaStronaWWW.*
+

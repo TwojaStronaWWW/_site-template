@@ -1,0 +1,15 @@
+# Docker Compose dla lokalnego rozwoju i testowania PHP (Full-Stack Parity)
+# Zapewnia środowisko identyczne z hostingiem produkcyjnym (PHP 8.3 + Apache + mod_rewrite)
+services:
+  web:
+    image: php:8.3-apache
+    container_name: site-template-web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/var/www/html:ro
+      - ./api/sessions:/var/www/html/api/sessions:rw
+      - ./api/rate_limits:/var/www/html/api/rate_limits:rw
+    command: >
+      bash -c "a2enmod rewrite headers && apache2-foreground"
