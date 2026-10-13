@@ -5,12 +5,12 @@
     Eliminuje potrzebe tworzenia subdomen testowych ('test.nazwastrony.pl') i otwierania portow w zaporze.
     Uruchamia kontener cloudflared w Dockerze lub bezposrednio i generuje unikalny link HTTPS.
 .EXAMPLE
-    pwsh -File scripts/preview-tunnel.ps1 -Target "http://localhost:3000"
+    pwsh -File scripts/preview-tunnel.ps1 -Target "http://localhost:8080"
 #>
 
 [CmdletBinding()]
 param(
-    [string]$Target = "http://localhost:3000"
+    [string]$Target = "http://localhost:8080"
 )
 
 Write-Host "======================================================================" -ForegroundColor Cyan

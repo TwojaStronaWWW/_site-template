@@ -6,7 +6,7 @@
 # ==============================================================================
 set -euo pipefail
 
-TARGET="${1:-http://localhost:3000}"
+TARGET="${1:-http://localhost:8080}"
 
 echo "======================================================================"
 echo ">> [Cloudflare Quick Tunnel] Generowanie tymczasowego podgladu witryny"
