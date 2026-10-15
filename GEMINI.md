@@ -32,13 +32,20 @@ _site-template/
 │   └── commit-msg                 # Git hook wymuszający format Conventional Commits
 ├── assets/
 │   ├── css/main.css               # Design System, CSS tokens, responsywny layout, reset
-│   ├── js/main.js                 # Vanilla ES6 UI: nawigacja mobilna (a11y), zdarzenia
+│   ├── js/
+│   │   ├── main.js                # Vanilla ES6 UI: nawigacja mobilna (a11y), zdarzenia
+│   │   └── ai-widget.js           # Uniwersalny widget Asystenta AI (RAG via VPS, Multi-Turn, XSS-safe, Zero-Downtime Fallback)
 │   └── img/                       # Lekkie assety graficzne, ikony SVG i favicon
+├── docs/
+│   ├── AI_KNOWLEDGE_TEMPLATE.md   # Wzorcowy szablon bazy wiedzy RAG (<site_id>-knowledge.txt) dla VPS AI Routera
+│   └── CLOUDFLARE_STANDARDS.md    # Standard konfiguracji Cloudflare CDN / DNS
 ├── scripts/
 │   └── serve.js                   # Lekki lokalny serwer developerski HTTP w natywnym Node.js
 ├── tests/
 │   ├── helpers/mock-dom.js        # Lekka, bezbiblioteczna symulacja DOM dla środowiska Node.js
 │   └── unit/                      # Natywne testy jednostkowe (node:test)
+│       ├── ai-widget.test.js      # Testy widgetu AI (ochrona XSS w Markdown, pamięć rozmowy, fallback offline)
+│       ├── css-integrity.test.js  # Testy spójności CSS i zmiennych systemowych
 │       ├── html-integrity.test.js # Testy semantyki HTML5, nagłówków SEO, a11y i linków
 │       ├── main.test.js           # Testy interakcji UI i nawigacji
 │       └── repo-hygiene.test.js   # Testy higieny repozytorium, ISO 27001, hooków i CI/CD
@@ -61,14 +68,19 @@ _site-template/
 1. **SoC (Separation of Concerns):**
    - Czysty podział na semantyczny HTML5, reguły w `assets/css/` i modułowy Vanilla JS w `assets/js/`.
    - **Zakaz** umieszczania styli `style="..."` oraz skryptów `onclick="..."` w znacznikach HTML.
-2. **Bezpieczeństwo danych i sesji (Zero Data Leakage):**
+2. **Bezpieczeństwo danych, sesji i sekretów (Zero Data Leakage & KeePass-First):**
    - Sesje PHP (`api/sessions/*`), liczniki rate-limitera (`api/rate_limits/*.json`) oraz zebrane kontakty (`api/leads_*.csv`, pliki `.log`) są bezwzględnie wykluczone w `.gitignore`.
    - Wszelkie prywatne katalogi API muszą posiadać regułę Apache `Deny from all` w dedykowanym `.htaccess`.
+   - Wszystkie poświadczenia produkcyjne (SFTP, Cloudflare, klucze AI) są ewidencjonowane w sejfie **KeePass** (`Databasekpoczatek.kdbx` $\rightarrow$ `VPS - TwojaStronaWWW`).
 3. **Ochrona transakcyjna współbieżności:**
    - Wszystkie operacje zapisu do plików płaskich (CSV/JSON) muszą być realizowane atomowo z blokadą wyłączną (`LOCK_EX`).
 4. **Zero-Dependency Testing (Natywny ekosystem Node.js):**
    - Testy jednostkowe oparte wyłącznie na wbudowanym module `node:test` i `node:assert/strict`.
    - **Zakaz** instalowania ciężkich bibliotek testowych (Jest, Mocha, Karma, jsdom).
+5. **Standard Asystenta AI (Obszar 3: AI z Bazą Wiedzy Firmy RAG + Centralny VPS AI Router):**
+   - **Zero kluczy API na frontendzie:** Kod strony (`assets/js/ai-widget.js`) komunikuje się wyłącznie z centralną bramką `https://ai.twojastronawww.pl/chat-router.php` na serwerze VPS (obsługującą 7-modelową kaskadę Gemini + Groq + OpenRouter z automatycznym Cooldownem i telemetrią Prometheus/Grafana).
+   - **Izolacja bazy wiedzy RAG (`site_id`):** Każdy projekt posiada dedykowany plik wiedzy `VPS/services/ai-router/data/<site_id>-knowledge.txt` tworzony na bazie `docs/AI_KNOWLEDGE_TEMPLATE.md` (z twardymi regułami anty-halucynacyjnymi Guardrails) oraz domenę dopisaną do `ALLOWED_ORIGINS`.
+   - **Ochrona XSS i ciągłość działania (Zero-Downtime):** Odpowiedzi modelu są parsowane przez funkcję `formatMarkdown()` escapującą znaczniki HTML przed formatowaniem, a w razie braku sieci widget automatycznie korzysta z lokalnego fallbacku `getLocalFallbackAnswer()`.
 
 ---
 

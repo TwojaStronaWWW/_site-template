@@ -179,4 +179,18 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     assert.strictEqual(typeof pdfModule.findBrowserBinary, 'function');
     assert.strictEqual(typeof pdfModule.generatePdf, 'function');
   });
+
+  it('standard Asystenta AI (assets/js/ai-widget.js, docs/AI_KNOWLEDGE_TEMPLATE.md oraz test jednostkowy) powinien istnieć i nie zawierać kluczy API (ISO 27001)', () => {
+    const widgetPath = path.join(ROOT_DIR, 'assets', 'js', 'ai-widget.js');
+    const templatePath = path.join(ROOT_DIR, 'docs', 'AI_KNOWLEDGE_TEMPLATE.md');
+    const testPath = path.join(ROOT_DIR, 'tests', 'unit', 'ai-widget.test.js');
+
+    assert.ok(fs.existsSync(widgetPath), 'Brak assets/js/ai-widget.js');
+    assert.ok(fs.existsSync(templatePath), 'Brak docs/AI_KNOWLEDGE_TEMPLATE.md');
+    assert.ok(fs.existsSync(testPath), 'Brak tests/unit/ai-widget.test.js');
+
+    const widgetCode = fs.readFileSync(widgetPath, 'utf-8');
+    assert.ok(widgetCode.includes('https://ai.twojastronawww.pl/chat-router.php'), 'Widget AI musi wskazywać na centralny VPS AI Router');
+    assert.strictEqual(/AIzaSy|gsk_|sk-or-v1-/i.test(widgetCode), false, 'Widget frontendowy nie może zawierać zahardkodowanych kluczy API');
+  });
 });

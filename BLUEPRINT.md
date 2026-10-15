@@ -373,8 +373,26 @@ Dla aplikacji odtwarzających streaming radiowy, podcasty lub muzykę (wzorowane
 1. **Zastosowanie:**
    - Ciągły monitoring dostępności witryny 24/7/365, czasu odpowiedzi oraz ważności certyfikatu SSL.
 2. **Procedura:**
-   - Po wdrożeniu na serwer produkcyjny, witrynę rejestruje się w panelu https://monitoring.twojastronawww.pl.
-   - Konfiguracja: Monitor HTTP(s), interwał 60s, powiadomienia na kanał Ntfy kpoczatek-vps-alerty.
+   - Po wdrożeniu na serwer produkcyjny, witrynę dopisuje się do skryptu `VPS/scripts/setup-kuma.js` (idempotentna rejestracja monitora HTTP(s) z interwałem 60s i powiadomieniami Ntfy) oraz prezentuje na dashboardzie Grafany **Centrum Monitoringu Stron WWW & Usług** (`uid: uptime-kuma-overview`).
+
+---
+
+### Krok 19: Wdrożenie Asystenta AI z Bazą Wiedzy Firmy (Obszar 3 RAG & Centralny VPS AI Router)
+Wzorzec wypracowany w **Fuego Lingua** oraz **Kato Salsa Hub** i scentralizowany w `VPS/services/ai-router`:
+1. **Architektura (0,00 PLN / mies., 0 kluczy API na frontendzie):**
+   - Witryna ładuje lekki, bezbiblioteczny moduł `assets/js/ai-widget.js` (`<script type="module" src="assets/js/ai-widget.js" data-site-id="twojprojekt" data-title="Asystent Twojej Firmy"></script>`).
+   - Widget wysyła zapytania `POST` z pamięcią rozmowy (`history` do 8 wiadomości z `sessionStorage`) na adres `https://ai.twojastronawww.pl/chat-router.php` (przez szyfrowany tunel Cloudflare Zero Trust do serwera VPS).
+2. **7-Modelowa Kaskada High-Availability i Cooldown na VPS:**
+   - Centralny router na VPS posiada 3 niezależne klucze API zarejestrowane w sejfie **KeePass** (`Databasekpoczatek.kdbx` $\rightarrow$ `VPS - TwojaStronaWWW`): `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
+   - W razie limitu (`429`) lub przeciążenia (`503`), router automatycznie przełącza zapytanie przez 7 modeli (`gemini-2.5-flash` $\rightarrow$ `gemini-2.5-flash-lite` $\rightarrow$ `gemini-3-flash-preview` $\rightarrow$ `gemini-2.5-pro` $\rightarrow$ `gemma-3-27b-it` $\rightarrow$ `openai/gpt-oss-120b` na Groq $\rightarrow$ `nvidia/nemotron-3-super-120b-a12b:free` na OpenRouter) i nakłada tymczasowy cooldown na przeciążony model (`ai-stats.php`).
+3. **Przygotowanie Bazy Wiedzy RAG dla Nowego Klienta:**
+   - Skopiuj szablon `docs/AI_KNOWLEDGE_TEMPLATE.md` do repozytorium `VPS/services/ai-router/data/<site_id>-knowledge.txt`.
+   - Uzupełnij cennik, ofertę, proces współpracy oraz sekcję **Guardrails (Twarde Reguły Anty-Halucynacyjne)** określającą, jakich usług firma nie świadczy i kiedy odsyłać do kontaktu bezpośredniego.
+   - Dopisz domenę produkcyjną witryny do zmiennej `ALLOWED_ORIGINS` w `/opt/devops-stack/.env` na serwerze VPS.
+4. **Bezpieczeństwo XSS, Zero-Downtime Fallback i Obserwowalność:**
+   - Odpowiedzi na frontendzie są parsowane przez `formatMarkdown()` (escapowanie `& < > " '` przed renderowaniem pogrubień, list i linków).
+   - W razie braku internetu po stronie klienta lub chwilowej niedostępności sieci, widget automatycznie odpowiada z lokalnej funkcji `getLocalFallbackAnswer()`.
+   - Ruch, latencja `p50`/`p95`, wykorzystanie modeli i powody odrzuceń są monitorowane w czasie rzeczywistym na 25-panelowym dashboardzie Grafany **AI Router - Gemini Proxy Monitor** (`uid: ai-router-overview`, bez logowania treści pytań ani adresów IP zgodnie z ISO 27001).
 
 ---
 *Dokumentacja inżynierska platformy TwojaStronaWWW.*
