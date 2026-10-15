@@ -40,25 +40,44 @@ export const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 };
 
+const BLOCKED_FILE_PATTERN = /(^|[\/\\])(\.env.*|\.htaccess|\.git.*|.*\.(php|bak|tmp|log|sql|sh|swp))$/i;
+
 export function resolveSafeFilePath(rawUrl = '/', rootDir = ROOT_DIR) {
-  let reqUrl = decodeURI(String(rawUrl).split('?')[0]);
+  let reqUrl;
+  try {
+    reqUrl = decodeURI(String(rawUrl).split('?')[0]);
+  } catch {
+    return { filePath: '', isAllowed: false, isMalformed: true };
+  }
   if (reqUrl === '/' || reqUrl === '') reqUrl = '/index.html';
 
+  const hasTraversalAttempt = /(^|[\/\\])\.\.([\/\\]|$)/.test(reqUrl);
   const resolvedRoot = path.resolve(rootDir);
   const relativeTarget = reqUrl.replace(/^[\/\\]+/, '');
   const filePath = path.resolve(resolvedRoot, relativeTarget);
 
-  const isAllowed =
-    filePath === resolvedRoot ||
-    filePath.startsWith(resolvedRoot + path.sep);
+  const withinRoot =
+    !hasTraversalAttempt &&
+    (filePath === resolvedRoot || filePath.startsWith(resolvedRoot + path.sep));
 
-  return { filePath, isAllowed };
+  const isSensitiveBlocked = BLOCKED_FILE_PATTERN.test(filePath);
+
+  return { filePath, isAllowed: withinRoot && !isSensitiveBlocked, isMalformed: false };
 }
 
 export const server = http.createServer((req, res) => {
-  const { filePath, isAllowed } = resolveSafeFilePath(req.url, ROOT_DIR);
+  const { filePath, isAllowed, isMalformed } = resolveSafeFilePath(req.url, ROOT_DIR);
 
-  // Ochrona przed Directory Traversal (ISO/IEC 27001 / OWASP)
+  if (isMalformed) {
+    res.writeHead(400, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      ...SECURITY_HEADERS,
+    });
+    res.end('400 Nieprawidłowy adres URL');
+    return;
+  }
+
+  // Ochrona przed Directory Traversal i ekspozycją plików wrażliwych (ISO/IEC 27001 / OWASP)
   if (!isAllowed) {
     res.writeHead(403, {
       'Content-Type': 'text/plain; charset=utf-8',
@@ -89,6 +108,15 @@ export const server = http.createServer((req, res) => {
     });
 
     const stream = fs.createReadStream(filePath);
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(500, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          ...SECURITY_HEADERS,
+        });
+      }
+      res.end('500 Błąd odczytu pliku');
+    });
     stream.pipe(res);
   });
 });

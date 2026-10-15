@@ -186,12 +186,110 @@ export function initLightbox(doc = document) {
   return { modal, items, openLightbox, closeLightbox, showNext, showPrev, keyHandler, getCurrentIndex: () => currentIndex };
 }
 
+/**
+ * Obsługa formularza kontaktowego z zapisem szkicu w localStorage (100% zgodność z RODO)
+ * oraz pomiarem czasu interakcji Anty-Bot.
+ */
+export function initContactForm(doc = document, storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+  const form = doc.getElementById('contactForm');
+  if (!form) return null;
+
+  const DRAFT_KEY = 'tsw_contact_draft_v1';
+  const formInitTime = Date.now();
+  const inputs = Array.from(form.querySelectorAll?.('input, textarea') || []);
+  const errorDiv = doc.getElementById('formErrors');
+  const successMsg = doc.getElementById('formSuccess');
+
+  const saveDraft = () => {
+    if (!storage) return;
+    try {
+      const draft = {};
+      inputs.forEach(el => {
+        if (!el.name || el.name === 'website_url') return;
+        draft[el.name] = el.type === 'checkbox' ? Boolean(el.checked) : (el.value || '');
+      });
+      draft.updatedAt = Date.now();
+      storage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } catch (_) {}
+  };
+
+  const restoreDraft = () => {
+    if (!storage) return;
+    try {
+      const raw = storage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (!draft || typeof draft !== 'object') return;
+      inputs.forEach(el => {
+        if (!el.name || el.name === 'website_url' || !(el.name in draft)) return;
+        if (el.type === 'checkbox') {
+          el.checked = Boolean(draft[el.name]);
+        } else if (!el.value) {
+          el.value = String(draft[el.name] || '');
+        }
+      });
+    } catch (_) {}
+  };
+
+  restoreDraft();
+
+  inputs.forEach(el => {
+    if (el.name === 'website_url') return;
+    el.addEventListener?.('input', saveDraft);
+    el.addEventListener?.('change', saveDraft);
+  });
+
+  form.addEventListener?.('submit', async (e) => {
+    if (typeof e?.preventDefault === 'function') e.preventDefault();
+    if (errorDiv && errorDiv.style) errorDiv.style.display = 'none';
+    if (successMsg && successMsg.style) successMsg.style.display = 'none';
+
+    const payload = {
+      js_check: '1',
+      submission_seconds: ((Date.now() - formInitTime) / 1000).toFixed(2)
+    };
+
+    inputs.forEach(el => {
+      if (!el.name) return;
+      payload[el.name] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : (el.value || '');
+    });
+
+    try {
+      const res = await fetch('/api/contact.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok && (data.success || data.status === 'success')) {
+        if (successMsg) {
+          if (successMsg.style) successMsg.style.display = 'block';
+          successMsg.textContent = data.message || 'Wiadomość wysłana pomyślnie!';
+        }
+        form.reset?.();
+        try { storage?.removeItem(DRAFT_KEY); } catch (_) {}
+      } else if (errorDiv) {
+        if (errorDiv.style) errorDiv.style.display = 'block';
+        errorDiv.textContent = data.message || 'Wystąpił błąd podczas wysyłki.';
+      }
+    } catch (_) {
+      if (errorDiv) {
+        if (errorDiv.style) errorDiv.style.display = 'block';
+        errorDiv.textContent = 'Błąd połączenia. Spróbuj ponownie.';
+      }
+    }
+  });
+
+  return { form, saveDraft, restoreDraft };
+}
+
 // Inicjalizacja automatyczna w przeglądarce
 if (typeof document !== 'undefined') {
   const runInit = () => {
     initNavigation(document);
     initTabs(document);
     initLightbox(document);
+    initContactForm(document);
   };
 
   if (document.readyState === 'loading') {

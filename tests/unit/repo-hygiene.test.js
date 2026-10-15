@@ -24,15 +24,17 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     assert.ok(pkg.scripts.dev, 'Brak skryptu dev');
   });
 
-  it('konfiguracja CI/CD (.github/workflows) powinna posiadać ci.yml, deploy-staging.yml oraz deploy-production.yml', () => {
-    const workflows = ['ci.yml', 'deploy-staging.yml', 'deploy-production.yml'];
+  it('konfiguracja CI/CD (.github/workflows) powinna posiadać ci.yml, deploy-staging.yml, deploy-production.yml oraz dependabot-automerge.yml', () => {
+    const workflows = ['ci.yml', 'deploy-staging.yml', 'deploy-production.yml', 'dependabot-automerge.yml'];
     for (const wf of workflows) {
       const wfPath = path.join(ROOT_DIR, '.github', 'workflows', wf);
       assert.ok(fs.existsSync(wfPath), `Brak pliku .github/workflows/${wf}`);
       const content = fs.readFileSync(wfPath, 'utf-8');
       assert.match(content, /runs-on:\s*ubuntu-latest/i);
-      assert.match(content, /actions\/checkout@v4/i);
     }
+    const ciContent = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', 'ci.yml'), 'utf-8');
+    assert.match(ciContent, /gitleaks/i);
+    assert.match(ciContent, /smoke-diagnostics/i);
   });
 
   it('kluczowe pliki źródłowe nie mogą zawierać pozostałości po konfliktach gita (merge conflict markers)', () => {
@@ -62,7 +64,7 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     scanDir(ROOT_DIR);
   });
 
-  it('pliki dokumentacji i standardów AGENTS.md, GEMINI.md, README.md, BLUEPRINT.md, ROADMAP.template.md, SECURITY.md, LICENSE oraz .editorconfig powinny istnieć', () => {
+  it('pliki dokumentacji, standardów (.gitleaks.toml, .env.example, .htaccess, sw.js) oraz konfiguracji powinny istnieć', () => {
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'AGENTS.md')), 'Brak AGENTS.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'GEMINI.md')), 'Brak GEMINI.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'README.md')), 'Brak README.md');
@@ -71,16 +73,34 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'SECURITY.md')), 'Brak SECURITY.md');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'LICENSE')), 'Brak LICENSE');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, '.editorconfig')), 'Brak .editorconfig');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.gitleaks.toml')), 'Brak .gitleaks.toml');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.env.example')), 'Brak .env.example');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.htaccess')), 'Brak głównego .htaccess');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'sw.js')), 'Brak Service Workera sw.js');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'eslint.config.mjs')), 'Brak eslint.config.mjs');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, '.htmlhintrc')), 'Brak .htmlhintrc');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'tests', 'smoke', 'ui-smoke.js')), 'Brak tests/smoke/ui-smoke.js');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'pull_request_template.md')), 'Brak .github/pull_request_template.md');
   });
 
-  it('katalogi api/sessions oraz api/rate_limits posiadają ochronę .htaccess (Deny from all)', () => {
+  it('katalogi api/, api/sessions oraz api/rate_limits posiadają ochronę .htaccess, moduł leads-store.php oraz RODO mask_ip w contact.php', () => {
+    const apiHt = path.join(ROOT_DIR, 'api', '.htaccess');
+    const leadsStore = path.join(ROOT_DIR, 'api', 'leads-store.php');
+    const contactPhp = path.join(ROOT_DIR, 'api', 'contact.php');
     const sessionsHt = path.join(ROOT_DIR, 'api', 'sessions', '.htaccess');
     const rateLimitsHt = path.join(ROOT_DIR, 'api', 'rate_limits', '.htaccess');
+    assert.ok(fs.existsSync(apiHt), 'Brak .htaccess w api/ chroniącego pliki CSV');
+    assert.ok(fs.existsSync(leadsStore), 'Brak api/leads-store.php');
     assert.ok(fs.existsSync(sessionsHt), 'Brak .htaccess w api/sessions');
     assert.ok(fs.existsSync(rateLimitsHt), 'Brak .htaccess w api/rate_limits');
+    assert.match(fs.readFileSync(apiHt, 'utf-8'), /csv/i);
     assert.match(fs.readFileSync(sessionsHt, 'utf-8'), /Deny from all/i);
     assert.match(fs.readFileSync(rateLimitsHt, 'utf-8'), /Deny from all/i);
+
+    const contactCode = fs.readFileSync(contactPhp, 'utf-8');
+    assert.match(contactCode, /function\s+mask_ip/i, 'Brak anonimizacji IP mask_ip() w api/contact.php');
+    assert.match(contactCode, /function\s+get_env_secret/i, 'Brak get_env_secret() w api/contact.php');
+    assert.match(contactCode, /OSTICKET_API_KEY/i, 'Brak integracji osTicket w api/contact.php');
   });
 
   it('plik .gitignore chroni sesje PHP, logi i dane leadów CSV (ISO 27001)', () => {

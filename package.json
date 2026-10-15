@@ -6,10 +6,11 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/unit/*.test.js",
+    "test:smoke": "node tests/smoke/ui-smoke.js",
     "test:coverage": "node --test --experimental-test-coverage tests/unit/*.test.js",
     "test:watch": "node --test --watch tests/unit/*.test.js",
     "build:pdf": "node scripts/generate-pdf.js",
-    "check:syntax": "node --check assets/js/main.js && node --check assets/js/ai-widget.js && node --check scripts/serve.js && node --check scripts/generate-pdf.js",
+    "check:syntax": "node --check assets/js/main.js && node --check assets/js/ai-widget.js && node --check sw.js && node --check scripts/serve.js && node --check scripts/generate-pdf.js && node --check tests/smoke/ui-smoke.js",
     "check": "npm run check:syntax && npm test",
     "prepare": "git config core.hooksPath .githooks || true",
     "audit:lighthouse": "lhci autorun",

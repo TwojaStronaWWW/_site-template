@@ -30,6 +30,8 @@ api/leads_*.csv
 *.tar
 *.tar.gz
 *.bak
+*.tmp
+smoke-diagnostics/
 
 # OS metadata
 .DS_Store

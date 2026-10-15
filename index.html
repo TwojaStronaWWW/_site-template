@@ -54,7 +54,26 @@
     <section id="contact" class="section">
       <div class="container">
         <h2>Kontakt</h2>
-        <p>Napisz do nas: <a href="mailto:kontakt@twojastronawww.pl">kontakt@twojastronawww.pl</a></p>
+        <p>Napisz do nas bezpośrednio: <a href="mailto:kontakt@twojastronawww.pl">kontakt@twojastronawww.pl</a> lub skorzystaj z formularza poniżej.</p>
+        <div class="contact-wrapper">
+          <form id="contactForm" class="contact-form">
+            <input type="text" name="website_url" class="honeypot-field" tabindex="-1" autocomplete="off" aria-hidden="true">
+            <div id="formErrors" class="form-feedback form-feedback-error" role="alert"></div>
+            <input type="text" name="name" placeholder="Imię i nazwisko" aria-label="Imię i nazwisko" required>
+            <input type="email" name="email" placeholder="Adres e-mail" aria-label="Adres e-mail" required>
+            <input type="tel" name="phone" placeholder="Telefon (opcjonalnie)" aria-label="Telefon kontaktowy">
+            <textarea name="message" rows="5" placeholder="Twoja wiadomość" aria-label="Treść wiadomości" required></textarea>
+            <label class="form-consent-label">
+              <input type="checkbox" name="newsletter_consent" value="1">
+              <span>Chcę otrzymywać informacje o nowościach, poradnikach i ofertach specjalnych (opcjonalny Newsletter — wypiszesz się jednym kliknięciem).</span>
+            </label>
+            <button type="submit" class="btn btn-primary btn-full-width">Wyślij wiadomość</button>
+            <p id="formSuccess" class="form-feedback form-feedback-success" role="status">Wiadomość wysłana pomyślnie!</p>
+          </form>
+          <p class="rodo-note">
+            Administratorem danych jest właściciel serwisu. Dane z formularza przetwarzamy wyłącznie w celu odpowiedzi na Twoje zapytanie (art. 6 ust. 1 lit. b RODO). Szkic formularza jest zapisywany lokalnie w Twojej przeglądarce, abyś nie utracił wpisanego tekstu.
+          </p>
+        </div>
       </div>
     </section>
   </main>
