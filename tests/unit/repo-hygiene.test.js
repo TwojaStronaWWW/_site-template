@@ -157,10 +157,26 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     assert.match(content, /package-ecosystem:\s*"npm"/i);
   });
 
-  it('szablony zgłoszeń GitHub (.github/ISSUE_TEMPLATE) oraz serwer deweloperski powinny istnieć', () => {
+  it('szablony zgłoszeń GitHub (.github/ISSUE_TEMPLATE) oraz skrypty narzędziowe powinny istnieć i chronić przed Directory Traversal', async () => {
     assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'ISSUE_TEMPLATE', 'bug_report.yml')), 'Brak bug_report.yml');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'ISSUE_TEMPLATE', 'task.yml')), 'Brak task.yml');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, '.github', 'ISSUE_TEMPLATE', 'config.yml')), 'Brak config.yml');
     assert.ok(fs.existsSync(path.join(ROOT_DIR, 'scripts', 'serve.js')), 'Brak scripts/serve.js');
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'scripts', 'generate-pdf.js')), 'Brak scripts/generate-pdf.js');
+
+    const serveModule = await import('../../scripts/serve.js');
+    assert.strictEqual(typeof serveModule.resolveSafeFilePath, 'function');
+    assert.strictEqual(serveModule.SECURITY_HEADERS['X-Content-Type-Options'], 'nosniff');
+    assert.ok(serveModule.MIME_TYPES['.webmanifest']);
+
+    const validResult = serveModule.resolveSafeFilePath('/index.html', ROOT_DIR);
+    assert.strictEqual(validResult.isAllowed, true);
+
+    const traversalResult = serveModule.resolveSafeFilePath('/../../etc/passwd', ROOT_DIR);
+    assert.strictEqual(traversalResult.isAllowed, false, 'Serwer powinien blokować próby Directory Traversal');
+
+    const pdfModule = await import('../../scripts/generate-pdf.js');
+    assert.strictEqual(typeof pdfModule.findBrowserBinary, 'function');
+    assert.strictEqual(typeof pdfModule.generatePdf, 'function');
   });
 });
