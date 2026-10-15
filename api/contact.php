@@ -10,6 +10,7 @@ ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/rate-limit.php';
+require_once __DIR__ . '/leads-store.php';
 
 /**
  * Pobiera zmienną środowiskową z getenv(), $_ENV lub pliku .env poza katalogiem publicznym (ISO 27001)
@@ -74,7 +75,7 @@ $maskedIp = mask_ip($clientIp);
 // 0. Zabezpieczenie Rate Limiting (ISO 27001): maks. 5 zgłoszeń na 60 sekund
 if (!rate_limit('contact_' . $maskedIp, 5, 60)) {
     http_response_code(429);
-    echo json_encode(['success' => false, 'message' => 'Zbyt wiele prób wysłania wiadomości. Odczekaj chwilę przed kolejną próbą.']);
+    echo json_encode(['status' => 'error', 'success' => false, 'message' => 'Zbyt wiele prób wysłania wiadomości. Odczekaj chwilę przed kolejną próbą.']);
     exit;
 }
 
@@ -85,7 +86,7 @@ if (!is_array($input)) {
 }
 
 if (empty($input)) {
-    echo json_encode(['success' => false, 'message' => 'Brak danych wejściowych']);
+    echo json_encode(['status' => 'error', 'success' => false, 'message' => 'Brak danych wejściowych']);
     exit;
 }
 
@@ -93,20 +94,20 @@ if (empty($input)) {
 $honeypots = ['website_url', 'hp_chk', 'website', 'company_name', 'phone_extra'];
 foreach ($honeypots as $hp) {
     if (!empty($input[$hp])) {
-        echo json_encode(['success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
+        echo json_encode(['status' => 'success', 'success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
         exit;
     }
 }
 
 // 2. Zabezpieczenie Anty-Bot: Wymóg wykonania kodu JavaScript w przeglądarce
 if (empty($input['js_check'])) {
-    echo json_encode(['success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
+    echo json_encode(['status' => 'success', 'success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
     exit;
 }
 
 // 3. Zabezpieczenie Anty-Bot: Pomiar czasu interakcji (minimalny czas wypełniania >= 2.5s)
 if (!isset($input['submission_seconds']) || (float)$input['submission_seconds'] < 2.5) {
-    echo json_encode(['success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
+    echo json_encode(['status' => 'success', 'success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
     exit;
 }
 
@@ -117,26 +118,46 @@ $name = mb_substr(trim((string)preg_replace('/[\r\n]+/', ' ', $rawName)), 0, 120
 $rawEmail = isset($input['email']) ? filter_var(trim((string)$input['email']), FILTER_SANITIZE_EMAIL) : '';
 $email = mb_substr(trim((string)preg_replace('/[\r\n]+/', '', (string)$rawEmail)), 0, 180);
 
-$message = isset($input['message']) ? mb_substr(trim(strip_tags((string)$input['message'])), 0, 4000) : '';
+$phoneRaw = isset($input['phone']) ? trim(strip_tags((string)$input['phone'])) : '';
+$phone = preg_replace('/[^0-9+\-\s()]/', '', $phoneRaw) ?: '-';
 
-// 5. Walidacja wymaganych pól
-if (empty($name) || empty($message) || !$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    echo json_encode(['success' => false, 'message' => 'Proszę wypełnić wszystkie pola poprawnie.']);
+$messageRaw = isset($input['message']) ? mb_substr(trim(strip_tags((string)$input['message'])), 0, 4000) : '';
+$message = $messageRaw !== '' ? $messageRaw : '[Szybki kontakt — klient prosi o rozmowę bez opisu tekstowego]';
+$newsletterConsent = !empty($input['newsletter_consent']) && $input['newsletter_consent'] !== 'false' && $input['newsletter_consent'] !== '0' ? 'TAK' : 'NIE';
+
+$hasPhone = ($phone !== '-' && strlen(preg_replace('/\D/', '', $phone)) >= 7);
+$hasEmail = ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false);
+
+// 5. Walidacja wymaganych pól (Zero-Friction: wystarczy Imię + Telefon LUB E-mail)
+if (empty($name) || (!$hasPhone && !$hasEmail)) {
+    echo json_encode(['status' => 'error', 'success' => false, 'message' => 'Podaj imię oraz numer telefonu lub poprawny adres e-mail.']);
+    exit;
+}
+
+if ($email !== '' && !$hasEmail) {
+    echo json_encode(['status' => 'error', 'success' => false, 'message' => 'Proszę podać poprawny adres e-mail.']);
     exit;
 }
 
 // 6. Zabezpieczenie Anty-Spam: Wykrywanie cyrylicy oraz nadmiernej ilości odnośników URL
-if (preg_match('/\p{Cyrillic}/u', $message)) {
-    echo json_encode(['success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
+if (preg_match('/\p{Cyrillic}/u', $message) || preg_match_all('/https?:\/\//i', $message) > 2) {
+    echo json_encode(['status' => 'success', 'success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
     exit;
 }
 
-if (preg_match_all('/https?:\/\//i', $message) > 2) {
-    echo json_encode(['success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
-    exit;
-}
+// 7. Zapis finalnego leada i zgody newsletterowej (Zero-Data-Loss)
+save_lead([
+    date('Y-m-d'),
+    date('H:i:s'),
+    $name,
+    $hasEmail ? $email : '-',
+    $message,
+    hash('sha256', $maskedIp),
+    $phone,
+    $newsletterConsent
+], false);
 
-// 7. Hybrydowa wysyłka: Helpdesk osTicket API (jeśli skonfigurowano klucz w .env) z fallbackiem do mail()
+// 8. Hybrydowa wysyłka: Helpdesk osTicket API (jeśli skonfigurowano klucz w .env) z fallbackiem do mail()
 $osTicketApiKey = get_env_secret('OSTICKET_API_KEY');
 $osTicketApiUrl = get_env_secret('OSTICKET_API_URL', 'http://hd.twojastronawww.pl:8080/ticket_hook.php');
 $ticketCreated = false;
@@ -144,9 +165,10 @@ $ticketCreated = false;
 if (!empty($osTicketApiKey) && function_exists('curl_init')) {
     $ticketData = [
         'name' => $name,
-        'email' => $email,
-        'subject' => "Wiadomość z formularza od: $name",
-        'message' => $message,
+        'email' => $hasEmail ? $email : 'kontakt@twojadomena.pl',
+        'phone' => $phone,
+        'subject' => $messageRaw === '' ? "Szybki kontakt telefoniczny: $name ($phone)" : "Wiadomość z formularza od: $name",
+        'message' => "Telefon: $phone\nNewsletter: $newsletterConsent\n\n$message",
         'ip' => $maskedIp,
         'source' => 'Web',
     ];
@@ -172,21 +194,57 @@ if (!empty($osTicketApiKey) && function_exists('curl_init')) {
     $ticketCreated = ($httpCode === 201 && !empty($resArr['success']));
 }
 
+$toEmail = get_env_secret('CONTACT_EMAIL', 'kontakt@twojadomena.pl');
+$brandName = get_env_secret('BRAND_NAME', 'TwojaStronaWWW');
+
 if (!$ticketCreated) {
-    $toEmail = get_env_secret('CONTACT_EMAIL', 'kontakt@twojadomena.pl');
-    $subject = "Nowa wiadomość z formularza kontaktowego od: $name";
+    $subject = $messageRaw === '' ? "SZYBKI TELEFON od: $name ($phone)" : "Nowa wiadomość z formularza kontaktowego od: $name";
     $email_content = "Nowe zgłoszenie kontaktowe:\n\n";
     $email_content .= "Imię lub pseudonim: $name\n";
-    $email_content .= "Email: $email\n";
+    $email_content .= "Telefon: $phone\n";
+    $email_content .= "Email: " . ($hasEmail ? $email : '-') . "\n";
+    $email_content .= "Newsletter: $newsletterConsent\n";
     $email_content .= "Wiadomość:\n$message\n\n";
     $email_content .= "---\nData: " . date("Y-m-d H:i:s") . "\n";
     $email_content .= "Zanonimizowane IP (RODO): $maskedIp\n";
 
     $headers = "From: no-reply@twojadomena.pl\r\n";
-    $headers .= "Reply-To: $email\r\n";
+    if ($hasEmail) {
+        $headers .= "Reply-To: $email\r\n";
+    }
     $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
 
     @mail($toEmail, $subject, $email_content, $headers);
 }
 
-echo json_encode(['success' => true, 'message' => 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie.']);
+// 9. Autoresponder dla klienta (gdy podał adres e-mail)
+if ($hasEmail) {
+    $autoSubject = "Potwierdzenie otrzymania wiadomości — $brandName";
+    $autoBody  = "Dzień dobry $name,\n\n";
+    $autoBody .= "Dziękujemy za skontaktowanie się z $brandName.\n";
+    $autoBody .= "Twoje zgłoszenie dotarło do nas bezpiecznie. Odpowiemy najszybciej jak to możliwe (zazwyczaj w ciągu 24 godzin).\n\n";
+    $autoBody .= "Podsumowanie Twojego zgłoszenia:\n";
+    $autoBody .= "-----------------------------------------\n";
+    $autoBody .= "Telefon kontaktowy: $phone\n";
+    $autoBody .= "Treść wiadomości:\n$message\n";
+    $autoBody .= "-----------------------------------------\n\n";
+    if ($newsletterConsent === 'TAK') {
+        $autoBody .= "Odnotowaliśmy również Twoją zgodę na otrzymywanie informacji o nowościach i ofertach specjalnych (możesz zrezygnować w dowolnym momencie).\n\n";
+    }
+    $autoBody .= "Pozdrawiamy,\n";
+    $autoBody .= "Zespół $brandName\n";
+
+    $autoHeaders  = "From: $brandName <$toEmail>\r\n";
+    $autoHeaders .= "Reply-To: $toEmail\r\n";
+    $autoHeaders .= "Content-Type: text/plain; charset=UTF-8\r\n";
+
+    @mail($email, $autoSubject, $autoBody, $autoHeaders);
+}
+
+echo json_encode([
+    'status' => 'success',
+    'success' => true,
+    'message' => $hasEmail
+        ? 'Dziękujemy! Twoja wiadomość została wysłana pomyślnie. Sprawdź potwierdzenie na swoim e-mailu.'
+        : 'Dziękujemy! Twój numer został zapisany — oddzwonimy najszybciej jak to możliwe.'
+]);
