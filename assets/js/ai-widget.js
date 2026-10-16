@@ -516,11 +516,15 @@ export function initAiWidget(doc = document, win = globalThis.window) {
 
     if (sendBtn) sendBtn.disabled = true;
 
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 9000) : null;
+
     try {
       const fetchFn = win?.fetch || globalThis.fetch;
       const res = await fetchFn(routerUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller?.signal,
         body: JSON.stringify({
           site_id: siteId,
           question: trimmed,
@@ -552,6 +556,7 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       conversationHistory = conversationHistory.slice(-8);
       saveHistory();
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
       if (sendBtn) sendBtn.disabled = false;
       if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
