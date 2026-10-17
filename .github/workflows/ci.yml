@@ -32,9 +32,9 @@ jobs:
           fi
 
       # 2. Sprawdź czy nie commitujesz sekretów (Gitleaks CLI + weryfikacja plików)
-      - name: 1.3 Skaner sekretów Gitleaks (ISO 27001)
+      - name: 1.3 Skaner sekretów Gitleaks i ochrona danych CSV (ISO 27001)
         run: |
-          if git ls-files | grep -E "(\.env|config/secrets\.php|\.htpasswd)$"; then
+          if git ls-files | grep -E "(\.env|config/secrets\.php|\.htpasswd|leads_.*\.csv)$"; then
             echo "❌ Wykryto plik z wrażliwymi danymi w repozytorium!"
             exit 1
           fi

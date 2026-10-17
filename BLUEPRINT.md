@@ -14,13 +14,13 @@ Niniejszy dokument stanowi kompletny, ustandaryzowany przewodnik po architekturz
    - [2.4 Ochrona pre-commit hook (`.githooks/pre-commit`)](#24-ochrona-pre-commit-hook-githookspre-commit)
    - [2.5 Konfiguracja audytu Lighthouse CI (`.lighthouserc.json`)](#25-konfiguracja-audytu-lighthouse-ci-lighthousercjson)
    - [2.6 Automatyzacja aktualizacji akcji (`.github/dependabot.yml`)](#26-automatyzacja-aktualizacji-akcji-githubdependabotyml)
-   - [2.7 Potok wdrożeniowy CI/CD (`.github/workflows/deploy.yml`)](#27-potok-wdrożeniowy-cicd-githubworkflowsdeployyml)
+   - [2.7 Potok wdrożeniowy CI/CD (`.github/workflows/deploy-production.yml`)](#27-potok-wdrożeniowy-cicd-githubworkflowsdeploy-productionyml)
    - [2.8 Standardy SEO i PWA (`robots.txt`, `sitemap.xml`, `site.webmanifest`)](#28-standardy-seo-i-pwa-robotstxt-sitemapxml-sitewebmanifest)
 3. [ETAP 2: Procedura wdrożeniowa krok po kroku (Runbook)](#3-etap-2-procedura-wdrożeniowa-krok-po-kroku-runbook)
    - [Krok 1: Utworzenie i inicjalizacja repozytorium](#krok-1-utworzenie-i-inicjalizacja-repozytorium)
    - [Krok 2: Konfiguracja zmiennych środowiskowych i sekretów](#krok-2-konfiguracja-zmiennych-środowiskowych-i-sekretów)
    - [Krok 3: Dostosowanie testu spójności HTML (`html-integrity.test.js`)](#krok-3-dostosowanie-testu-spójności-html-html-integritytestjs)
-   - [Krok 4: Pokrycie logiki JavaScript testami UI (`main.test.js`, `contact-flow.test.js`)](#krok-4-pokrycie-logiki-javascript-testami-ui-maintestjs-contact-flowtestjs)
+   - [Krok 4: Pokrycie logiki JavaScript testami UI (`main.test.js`, `ai-widget.test.js`)](#krok-4-pokrycie-logiki-javascript-testami-ui-maintestjs-ai-widgettestjs)
    - [Krok 5: Aktualizacja i publikacja SEO (`robots.txt`, `sitemap.xml`)](#krok-5-aktualizacja-i-publikacja-seo-robotstxt-sitemapxml)
    - [Krok 6: (Opcjonalnie) Generator PDF dla ofert, cenników lub portfolio](#krok-6-opcjonalnie-generator-pdf-dla-ofert-cenników-lub-portfolio)
    - [Krok 7: Lokalna weryfikacja i pre-commit](#krok-7-lokalna-weryfikacja-i-pre-commit)
@@ -32,6 +32,10 @@ Niniejszy dokument stanowi kompletny, ustandaryzowany przewodnik po architekturz
    - [Krok 13: Natywna walidacja schematów danych (JSON & Markdown) w node:test](#krok-13-natywna-walidacja-schematów-danych-json--markdown-w-nodetest)
    - [Krok 14: Natywne Web Audio i MediaSession API (Lockscreen Controls)](#krok-14-natywne-web-audio-i-mediasession-api-lockscreen-controls)
    - [Krok 15: Zero-Dependency Link & Asset Integrity Checker w potoku CI](#krok-15-zero-dependency-link--asset-integrity-checker-w-potoku-ci)
+   - [Krok 16: Błyskawiczny Podgląd Krawędziowy (Cloudflare Quick Tunnel)](#krok-16-błyskawiczny-podgląd-krawędziowy-cloudflare-quick-tunnel)
+   - [Krok 17: Środowisko Lokalne Docker (PHP 8.3 Full-Stack Parity)](#krok-17-środowisko-lokalne-docker-php-83-full-stack-parity)
+   - [Krok 18: Rejestracja w Centralnym Monitoringu VPS (Uptime Kuma & Ntfy)](#krok-18-rejestracja-w-centralnym-monitoringu-vps-uptime-kuma--ntfy)
+   - [Krok 19: Wdrożenie Asystenta AI z Bazą Wiedzy Firmy (Obszar 3 RAG & Centralny VPS AI Router)](#krok-19-wdrożenie-asystenta-ai-z-bazą-wiedzy-firmy-obszar-3-rag--centralny-vps-ai-router)
 
 ---
 
@@ -41,7 +45,7 @@ Tradycyjne projekty frontendowe często cierpią na tzw. *dependency bloat* – 
 
 W architekturze TwojaStronaWWW przyjęto model Platform-First:
 - **0 ciężkich bibliotek testowych:** Natywny silnik `node:test` i asercje `node:assert/strict` wbudowane w Node.js (od wersji 18+).
-- **Lekki Mock DOM:** Zamiast pamięciożernego `jsdom` (wymagającego dziesiątek podzależności), stosujemy minimalistyczny, 80-linijkowy `mock-dom.js`.
+- **Lekki Mock DOM:** Zamiast pamięciożernego `jsdom` (wymagającego dziesiątek podzależności), stosujemy minimalistyczny `tests/helpers/mock-dom.js`.
 - **Wydajność CI/CD:** Cały proces (testy jednostkowe, audyt a11y/SEO i wdrożenie SFTP) zamyka się w **poniżej 60 sekund**.
 - **Wczesne wykrywanie błędów:** Lokalny pre-commit hook uniemożliwia zatwierdzenie commita z uszkodzonym HTML-em lub wyciekiem pliku `.env`.
 
@@ -54,49 +58,75 @@ W każdym repozytorium platformy wdrożony jest spójny ekosystem narzędziowy.
 ### 2.1 Uniwersalna struktura katalogów
 
 ```plaintext
-projekt/
+_site-template/
 ├── .github/
-│   ├── dependabot.yml              # Automatyczne aktualizacje akcji
-│   ├── pull_request_template.md    # Quality gate checklist dla PR
+│   ├── dependabot.yml                  # Automatyczne aktualizacje akcji i npm
+│   ├── pull_request_template.md        # Quality gate checklist dla PR
+│   ├── ISSUE_TEMPLATE/                 # Szablony zgłoszeń błędów i zadań (bug, task, config)
 │   └── workflows/
-│       ├── ci.yml                  # Testy jednostkowe + walidacja składni + PR check
-│       └── deploy.yml              # 3-etapowy potok CI/CD (Test -> Audit -> SFTP + Purge Cache)
+│       ├── ci.yml                      # Quality Gate + Gitleaks + PHP + node:test + Playwright Smoke + Lighthouse CI
+│       ├── dependabot-automerge.yml    # Automatyczne scalanie aktualizacji patch/minor z Dependabota
+│       ├── deploy-staging.yml          # Bezpieczny transfer SFTP na staging LH (z Quality Gate)
+│       └── deploy-production.yml       # Wdrożenie produkcyjne SFTP + Cloudflare Purge Cache + release tag
 ├── .githooks/
-│   ├── pre-commit                  # Lokalny strażnik jakości (uruchamia npm run check)
-│   └── commit-msg                  # Wymuszenie formatu Conventional Commits
+│   ├── pre-commit                      # Lokalny strażnik jakości (blokada sekretów + npm run check)
+│   └── commit-msg                      # Wymuszenie formatu Conventional Commits
 ├── api/
-│   ├── rate_limits/                # Pamięć liczników IP rate-limitera (.htaccess: Deny from all)
-│   └── sessions/                   # Bezpieczny magazyn sesji PHP (.htaccess: Deny from all)
+│   ├── .htaccess                       # Blokada bezpośredniego odczytu plików CSV
+│   ├── contact.php                     # Backend formularza (Multi-Honeypot, RODO mask_ip, osTicket + Autoresponder)
+│   ├── leads-store.php                 # Atomowy zapis i odczyt leadów CSV (flock LOCK_EX)
+│   ├── rate-limit.php                  # Plikowy Rate-Limiter IP z Garbage Collectorem
+│   ├── lead_recovery.php               # Endpoint informacyjny o RODO-zgodnym zapisie szkicu w localStorage
+│   ├── R2Client.php                    # Natywny klient obiektowy Cloudflare R2 (AWS SigV4 bez zewnętrznego SDK)
+│   ├── rate_limits/                    # Pamięć liczników IP rate-limitera (.htaccess: Deny from all)
+│   └── sessions/                       # Bezpieczny magazyn sesji PHP (.htaccess: Deny from all)
 ├── assets/
 │   ├── css/
-│   │   ├── style.css               # Style bazowe (reset, zmienne CSS, typografia, layout)
-│   │   └── media.css               # Responsywność RWD
+│   │   └── main.css                    # Design System (tokeny :root, RWD, Tabs, Lightbox, Formularz)
 │   ├── js/
-│   │   ├── main.js                 # Logika interfejsu użytkownika (UI, a11y, nawigacja)
-│   │   ├── contact.js              # Obsługa formularza, ochrona antyspamowa, lead recovery
-│   │   └── script.js               # Punkt wejścia / kompatybilność
-│   └── images/                     # Zoptymalizowane zasoby graficzne
+│   │   ├── main.js                     # Moduły UI: initNavigation, initTabs, initLightbox, initContactForm
+│   │   └── ai-widget.js                # Uniwersalny widget Asystenta AI (RAG via VPS, Multi-Turn, XSS-safe)
+│   └── img/                            # Zoptymalizowane zasoby graficzne i ikony SVG
 ├── docs/
-│   └── CLOUDFLARE_STANDARDS.md     # Standard konfiguracji Cloudflare CDN / DNS
+│   ├── AI_KNOWLEDGE_TEMPLATE.md        # Szablon bazy wiedzy RAG (<site_id>-knowledge.txt) dla VPS AI Routera
+│   └── CLOUDFLARE_STANDARDS.md         # Standard konfiguracji Cloudflare CDN / DNS / R2
 ├── scripts/
-│   └── serve.js                    # Lokalny serwer developerski w czystym Node.js
+│   ├── serve.js                        # Lokalny serwer developerski w czystym Node.js (ochrona Path Traversal)
+│   ├── generate-pdf.js                 # Bezbiblioteczny generator ofert PDF przez Headless Chromium
+│   ├── migrate-to-r2.php               # Skrypt CLI do migracji mediów do Cloudflare R2
+│   └── preview-tunnel.ps1 / .sh        # Szyfrowany podgląd na żywo przez Cloudflare Quick Tunnel
 ├── tests/
 │   ├── helpers/
-│   │   └── mock-dom.js             # Lekkie środowisko przeglądarki w czystym Node.js
+│   │   └── mock-dom.js                 # Lekkie środowisko przeglądarki w czystym Node.js (bez jsdom)
+│   ├── smoke/
+│   │   └── ui-smoke.js                 # Przeglądarkowy test dymny UI (Playwright Chromium)
 │   └── unit/
-│       ├── html-integrity.test.js  # Weryfikacja struktury HTML5, linków i standardów WCAG
-│       ├── main.test.js            # Testy interakcji UI i nawigacji
-│       ├── contact-flow.test.js    # Testy walidacji formularza i ratowania leadów
-│       └── repo-hygiene.test.js    # Testy rygoru repozytorium, ISO 27001 i CI/CD
-├── .gitignore                      # Ignorowanie sesji, logów, CSV i sekretów (ISO 27001)
-├── .gitattributes                  # Normalizacja końców linii LF
-├── .lighthouserc.json              # Konfiguracja audytu Lighthouse CI (min. 90% a11y, SEO, BP)
-├── index.html                      # Semantyczny szkielet HTML5
-├── robots.txt                      # Konfiguracja indeksowania botów wyszukiwarek
-├── sitemap.xml                     # Mapa witryny
-├── site.webmanifest                # Manifest PWA
-├── package.json                    # Konfiguracja skryptów npm (bez zbędnych zależności)
-└── README.md                       # Dokumentacja projektu i status odznak
+│       ├── ai-widget.test.js           # Testy widgetu AI (ochrona XSS, pamięć rozmowy, fallback offline)
+│       ├── css-integrity.test.js       # Testy spójności CSS i zmiennych systemowych
+│       ├── html-integrity.test.js      # Weryfikacja struktury HTML5, linków lokalnych i WCAG
+│       ├── main.test.js                # Testy interakcji UI (nawigacja, zakładki, lightbox, formularz)
+│       └── repo-hygiene.test.js        # Testy rygoru repozytorium, ISO 27001, hooków i CI/CD
+├── .editorconfig                       # Standard formatowania kodu w IDE
+├── .env.example                        # Wzorzec zmiennych środowiskowych (ISO 27001)
+├── .gitattributes                      # Normalizacja końców linii LF
+├── .gitignore                          # Ignorowanie sesji, logów, CSV i sekretów (ISO 27001)
+├── .gitleaks.toml                      # Reguły skanera wycieków sekretów Gitleaks
+├── .htaccess                           # Nagłówki bezpieczeństwa OWASP i blokada plików wrażliwych
+├── .htmlhintrc                         # Reguły walidacji statycznej HTML
+├── .lighthouserc.json                  # Konfiguracja audytu Lighthouse CI (min. 90% a11y, SEO, BP)
+├── docker-compose.yml                  # Lokalne środowisko PHP 8.3 + Apache
+├── eslint.config.mjs                   # Konfiguracja reguł statycznej analizy JS (ES2025)
+├── sw.js                               # Service Worker (PWA Stale-While-Revalidate)
+├── index.html                          # Semantyczny szkielet HTML5
+├── robots.txt                          # Konfiguracja indeksowania botów wyszukiwarek
+├── sitemap.xml                         # Mapa witryny
+├── site.webmanifest                    # Manifest PWA
+├── package.json                        # Konfiguracja skryptów npm (zero zbędnych zależności)
+├── AGENTS.md / GEMINI.md               # Wytyczne architektoniczne dla asystentów AI
+├── BLUEPRINT.md                        # Niniejszy podręcznik architektury i procedur
+├── ROADMAP.template.md                 # Szablon rejestru sprintów i wydań
+├── SECURITY.md                         # Polityka bezpieczeństwa ISO 27001
+└── README.md                           # Dokumentacja projektu i status odznak
 ```
 
 ---
@@ -142,11 +172,11 @@ Gdy strona posiada docelową zawartość w plikach HTML (`index.html`, podstrony
 
 ---
 
-### Krok 4: Pokrycie logiki JavaScript testami UI (`main.test.js`, `contact-flow.test.js`)
+### Krok 4: Pokrycie logiki JavaScript testami UI (`main.test.js`, `ai-widget.test.js`)
 Dla każdego modułu JavaScript w `assets/js/`:
 1. Zdefiniuj testy jednostkowe w `tests/unit/`.
 2. Zainicjalizuj środowisko symulujące DOM za pomocą pomocnika `tests/helpers/mock-dom.js`.
-3. Przetestuj zdarzenia kliknięć, nawigację mobilną, dostępność (klawisz Escape, atrybuty `aria-expanded`) oraz walidację formularzy.
+3. Przetestuj zdarzenia kliknięć, nawigację mobilną, zakładki, lightbox, dostępność (klawisz Escape, atrybuty `aria-expanded`), formularz kontaktowy (`initContactForm`) oraz widget AI (`ai-widget.js`).
 
 ---
 
@@ -159,7 +189,7 @@ Dla każdego modułu JavaScript w `assets/js/`:
 
 ### Krok 6: (Opcjonalnie) Generator PDF dla ofert, cenników lub portfolio
 Jeśli projekt wymaga generowania dokumentów PDF (np. oferta, specyfikacja, cennik):
-- Zaimplementuj lekki moduł oparty na bezgłowej przeglądarce Chromium (Chromium Headless / Puppeteer Core).
+- Wykorzystaj wbudowany, bezbiblioteczny skrypt `scripts/generate-pdf.js` (`npm run build:pdf`) oparty na lokalnej przeglądarce Chromium/Edge/Chrome Headless.
 - Generuj wektorowy plik PDF A4 bezpośrednio z dedykowanego widoku HTML/CSS zoptymalizowanego pod `@media print`.
 
 ---
@@ -178,27 +208,27 @@ git commit -m "feat(seo): skonfigurowanie metadanych i sitemap dla domeny produk
 ---
 
 ### Krok 8: Wypchnięcie kodu na Staging i Production
-1. **Staging / PR:** Wypchnij branch roboczy lub gałąź `staging`. Potok `.github/workflows/ci.yml` zweryfikuje jakość kodu.
-2. **Produkcja:** Po scaleniu do gałęzi `main`, potok `.github/workflows/deploy.yml` automatycznie:
-   - Zrealizuje testy jednostkowe i audyt Lighthouse CI,
-   - Prześle zmienione pliki przez SFTP na serwer LH,
-   - Wykona natychmiastowe czyszczenie pamięci podręcznej Cloudflare (Purge Cache API).
+1. **Staging / PR:** Wypchnij branch roboczy lub gałąź `staging`. Potoki `.github/workflows/ci.yml` oraz `.github/workflows/deploy-staging.yml` zweryfikują jakość kodu i wdrożą go na środowisko testowe.
+2. **Produkcja:** Po scaleniu do gałęzi `main`, potok `.github/workflows/deploy-production.yml` automatycznie:
+   - Zrealizuje pełny Quality Gate (`npm run check`),
+   - Prześle zmienione pliki przez SFTP na serwer LH (z wykluczeniem katalogów `tests/`, `scripts/` i plików konfiguracyjnych),
+   - Wykona natychmiastowe czyszczenie pamięci podręcznej Cloudflare (Purge Cache API) i utworzy tag wydania.
 
 ---
 
 ### Krok 9: Bezpieczny moduł pozyskiwania leadów i formularza kontaktowego (PHP Flat-File CRM)
 Dla serwisów firmowych wymagających obsługi formularza kontaktowego bez konieczności wdrażania bazy danych:
-1. **Architektura Flat-File CSV:**
-   - Eliminacja ryzyka SQL Injection dzięki zapisowi do plików CSV.
+1. **Architektura Flat-File CSV (`api/leads-store.php`):**
+   - Eliminacja ryzyka SQL Injection dzięki zapisowi do plików CSV (`api/leads_YYYY-MM.csv`).
    - Atomowy zapis z blokadą wyłączną `LOCK_EX` (`flock($fp, LOCK_EX)`), gwarantujący integralność danych przy równoległych żądaniach.
-2. **Ochrona transakcyjna CSRF i nagłówków:**
-   - Generowanie jednorazowego tokenu CSRF (`api/get-csrf-token.php`) powiązanego z sesją PHP.
-   - Restrykcyjna weryfikacja nagłówka `Origin` lub `Referer` w endpointach API.
-3. **Mitygacja spamu i botów:**
-   - Ukryte pole-pułapka Honeypot (niewidoczne dla użytkowników, natychmiastowe odrzucenie wypełnień automatów).
-   - Rate-limiter IP oparty na plikach liczników w `api/rate_limits/`.
+2. **Zgodność z RODO / Privacy-by-Design (`api/contact.php`, `api/lead_recovery.php`):**
+   - Anonimizacja adresu IP funkcją `mask_ip()` (zerowanie ostatniego oktetu IPv4/końcówki IPv6) oraz haszowanie SHA-256 przy zapisie leada.
+   - Zapis szkicu formularza przed wysłaniem odbywa się wyłącznie lokalnie w przeglądarce użytkownika (`localStorage` w `initContactForm`).
+3. **Mitygacja spamu i botów (`api/rate-limit.php`, `api/contact.php`):**
+   - Wielopolowy Honeypot, weryfikacja `js_check` oraz pomiar czasu interakcji (`submission_seconds >= 2.5s`).
+   - Plikowy Rate-limiter IP z losowym Garbage Collectorem w `api/rate_limits/`.
 4. **Zgodność z ISO 27001 (Zero Data Leakage):**
-   - W plikach `.htaccess` w katalogach `api/sessions/` oraz `api/rate_limits/` bezwzględna reguła `Deny from all`.
+   - W plikach `.htaccess` w katalogach `api/`, `api/sessions/` oraz `api/rate_limits/` bezwzględna blokada odczytu plików CSV i sesji (`Deny from all`).
    - W pliku `.gitignore` reguły wykluczające: `api/sessions/*`, `api/rate_limits/*.json`, `api/leads_*.csv` oraz `*.log`.
 
 ---
@@ -212,7 +242,7 @@ Dla witryn korzystających z ochrony i przyspieszania Cloudflare CDN/Proxy:
    - Speed Brain: **ON**, Rocket Loader: **OFF** (dla maksymalnej stabilności czystego Vanilla JS).
 2. **Automatyczny Purge Cache w CI/CD:**
    - Dodaj w GitHub Secrets: `CLOUDFLARE_ZONE` oraz `CLOUDFLARE_TOKEN`.
-   - Potok `deploy.yml` automatycznie odświeży pamięć podręczną krawędzi Cloudflare zaraz po pomyślnym transferze SFTP na hosting.
+   - Potok `deploy-production.yml` automatycznie odświeży pamięć podręczną krawędzi Cloudflare zaraz po pomyślnym transferze SFTP na hosting.
 3. **Prawidłowy odczyt IP w PHP:**
    - Odczytuj prawdziwe IP użytkownika za pośrednictwem nagłówka Cloudflare:
      ```php
@@ -221,7 +251,7 @@ Dla witryn korzystających z ochrony i przyspieszania Cloudflare CDN/Proxy:
 4. **Domyślny standard przechowywania mediów: Cloudflare R2 (Zero-Bloat Media):**
    - Repozytorium Git służy wyłącznie do wersjonowania kodu (zakaz trzymania wielomegabajtowych plików graficznych i wideo w Git).
    - Zdjęcia i pliki multimedialne przechowywane są w dedykowanym zasobniku Cloudflare R2 (`<projekt>-media`) i serwowane z subdomeny `https://media.twojadomena.pl/`.
-   - Do komunikacji z bucketem służy natywny, bezbiblioteczny klient `api/R2Client.php` (AWS SigV4).
+   - Do komunikacji z bucketem służy natywny, bezbiblioteczny klient `api/R2Client.php` (AWS SigV4) oraz skrypt migracyjny `scripts/migrate-to-r2.php` (`npm run media:r2`).
 
 
 ---
@@ -272,8 +302,8 @@ Wzorzec wypracowany w Kato Salsa Hub i zaimplementowany w `api/contact.php`:
 4. **Filtry antyspamowe treści:**
    - Wykrywanie niepożądanego alfabetu (np. `preg_match('/\p{Cyrillic}/u', $message)`).
    - Ograniczenie liczby linków URL w wiadomości (`preg_match_all('/https?:\/\//i', $message) > 2`).
-5. **Hybrydowa integracja zgłoszeń (Helpdesk API / Email Fallback):**
-   - Bezpośrednie wysyłanie zgłoszenia do wewnętrznego API osTicket / Helpdesku, a w razie niedostępności natychmiastowy fallback do wiadomości e-mail.
+5. **Hybrydowa integracja zgłoszeń (Helpdesk API / Email Fallback & Autoresponder):**
+   - Bezpośrednie wysyłanie zgłoszenia do wewnętrznego API osTicket / Helpdesku, fallback do wiadomości e-mail oraz automatyczne potwierdzenie dla klienta.
 
 ---
 
@@ -343,29 +373,31 @@ Dla aplikacji odtwarzających streaming radiowy, podcasty lub muzykę (wzorowane
      ```
    - Skrypt natychmiast przerywa build w przypadku literówki w nazwie grafiki, arkusza stylów lub brakującego pliku widoku.
 
+---
+
 ### Krok 16: Błyskawiczny Podgląd Krawędziowy (Cloudflare Quick Tunnel)
 1. **Zastosowanie:**
-   - Prezentacja postępów klientowi oraz weryfikacja responsywności na urządzeniach mobilnych bez konieczności utrzymywania subdomen testowych (test.nazwa.pl) ani otwierania portów w routerze.
+   - Prezentacja postępów klientowi oraz weryfikacja responsywności na urządzeniach mobilnych bez konieczności utrzymywania subdomen testowych (`test.nazwa.pl`) ani otwierania portów w routerze.
 2. **Uruchomienie:**
-   ``bash
+   ```bash
    npm run serve
    # W drugim terminalu:
    npm run preview:share
-   ``
-   - Skrypt scripts/preview-tunnel.ps1 / scripts/preview-tunnel.sh uruchamia kontener cloudflare/cloudflared łączący lokalny port 3000 z siecią Cloudflare pod domeną *.trycloudflare.com.
-   - Zakończenie procesu (Ctrl+C) natychmiastowo niszczy tunel.
+   ```
+   - Skrypt `scripts/preview-tunnel.ps1` / `scripts/preview-tunnel.sh` uruchamia kontener `cloudflare/cloudflared` łączący lokalny port `3000` z siecią Cloudflare pod domeną `*.trycloudflare.com`.
+   - Zakończenie procesu (`Ctrl+C`) natychmiastowo niszczy tunel.
 
 ---
 
 ### Krok 17: Środowisko Lokalne Docker (PHP 8.3 Full-Stack Parity)
 1. **Zastosowanie:**
-   - Weryfikacja formularza pi/contact.php, mechanizmu CSRF, rate-limitera oraz reguł .htaccess na stacjach roboczych bez zainstalowanego lokalnie PHP lub Apache.
+   - Weryfikacja formularza `api/contact.php`, mechanizmu rate-limitera oraz reguł `.htaccess` na stacjach roboczych bez zainstalowanego lokalnie PHP lub Apache.
 2. **Uruchomienie:**
-   ``bash
+   ```bash
    npm run dev:docker
-   ``
-   - Kontener php:8.3-apache montuje katalog projektu w /var/www/html z włączonymi modułami ewrite i headers.
-   - Środowisko dostępne pod adresem http://localhost:8080.
+   ```
+   - Kontener `php:8.3-apache` montuje katalog projektu w `/var/www/html` z włączonymi modułami `rewrite` i `headers`.
+   - Środowisko dostępne pod adresem `http://localhost:8080`.
 
 ---
 
@@ -377,21 +409,25 @@ Dla aplikacji odtwarzających streaming radiowy, podcasty lub muzykę (wzorowane
 
 ---
 
-### Krok 19: Wdrożenie Asystenta AI z Bazą Wiedzy Firmy (Obszar 3 RAG & Centralny VPS AI Router)
-Wzorzec wypracowany w **Fuego Lingua** oraz **Kato Salsa Hub** i scentralizowany w `VPS/services/ai-router`:
+### Krok 19: Wdrożenie Asystenta AI z Bazą Wiedzy Firmy (Obszar 3 RAG, Dynamic KB & Response Cache v3.0)
+Wzorzec wypracowany w **TwojaStronaWWW**, **Fuego Lingua** oraz **Kato Salsa Hub** i scentralizowany w `VPS/services/ai-router`:
 1. **Architektura (0,00 PLN / mies., 0 kluczy API na frontendzie):**
-   - Witryna ładuje lekki, bezbiblioteczny moduł `assets/js/ai-widget.js` (`<script type="module" src="assets/js/ai-widget.js" data-site-id="twojprojekt" data-title="Asystent Twojej Firmy"></script>`).
-   - Widget wysyła zapytania `POST` z pamięcią rozmowy (`history` do 8 wiadomości z `sessionStorage`) na adres `https://ai.twojastronawww.pl/chat-router.php` (przez szyfrowany tunel Cloudflare Zero Trust do serwera VPS).
-2. **7-Modelowa Kaskada High-Availability i Cooldown na VPS:**
+   - Witryna ładuje lekki, bezbiblioteczny moduł `assets/js/ai-widget.js` (`<script type="module" src="assets/js/ai-widget.js" data-site-id="twojprojekt" data-title="Asystent Twojej Firmy" data-kb-url="assets/data/knowledge.json"></script>`).
+   - Widget wysyła zapytania `POST` z pamięcią rozmowy (`history` do 8 wiadomości z `sessionStorage`), sygnaturą wersji bazy wiedzy (`kb_version`) oraz dynamicznym kontekstem (`dynamic_context`) na adres `https://ai.twojastronawww.pl/chat-router.php`.
+2. **Dwupoziomowy Response Cache (Query Cache) i Automatyczna Inwalidacja:**
+   - **Cache po stronie przeglądarki (`tsw_ai_cache_<siteId>`):** Gdy użytkownik zadaje to samo pytanie po raz drugi, znormalizowany klucz (`normalizeCacheQuery`) zwraca odpowiedź natychmiast (0 ms) bez ponownego odpytywania modelu AI. Wiadomości zawierające e-mail lub telefon są wykluczone z cache (Zero-PII).
+   - **Dynamiczna synchronizacja z bazą wiedzy (np. Salsopedią):** Widget wylicza deterministyczny skrót FNV-1a (`computeKnowledgeVersion`) ze wszystkich wpisów bazy wiedzy. Każda zmiana w bazie wiedzy (dodanie, edycja, weryfikacja lub usunięcie hasła przez `salsopedia:updated` / `updateKnowledgeEntries`) natychmiast unieważnia nieaktualny cache i **automatycznie odświeża odpowiedzi na wcześniej zadane pytania w bieżącej sesji czatu**.
+   - **Cache po stronie serwera (`chat-router.php`):** Klucz SHA-256 uwzględnia `site_id`, `filemtime`, `kb_version`, `dynamic_context` oraz historię rozmowy.
+3. **7-Modelowa Kaskada High-Availability i Cooldown na VPS:**
    - Centralny router na VPS posiada 3 niezależne klucze API zarejestrowane w sejfie **KeePass** (`Databasekpoczatek.kdbx` $\rightarrow$ `VPS - TwojaStronaWWW`): `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
-   - W razie limitu (`429`) lub przeciążenia (`503`), router automatycznie przełącza zapytanie przez 7 modeli (`gemini-2.5-flash` $\rightarrow$ `gemini-2.5-flash-lite` $\rightarrow$ `gemini-3-flash-preview` $\rightarrow$ `gemini-2.5-pro` $\rightarrow$ `gemma-3-27b-it` $\rightarrow$ `openai/gpt-oss-120b` na Groq $\rightarrow$ `nvidia/nemotron-3-super-120b-a12b:free` na OpenRouter) i nakłada tymczasowy cooldown na przeciążony model (`ai-stats.php`).
-3. **Przygotowanie Bazy Wiedzy RAG dla Nowego Klienta:**
+   - W razie limitu (`429`) lub przeciążenia (`503`), router automatycznie przełącza zapytanie przez kaskadę modeli Gemini / Gemma / Groq LPU / OpenRouter i nakłada tymczasowy cooldown na przeciążony model (`ai-stats.php`).
+4. **Przygotowanie Bazy Wiedzy RAG dla Nowego Klienta:**
    - Skopiuj szablon `docs/AI_KNOWLEDGE_TEMPLATE.md` do repozytorium `VPS/services/ai-router/data/<site_id>-knowledge.txt`.
    - Uzupełnij cennik, ofertę, proces współpracy oraz sekcję **Guardrails (Twarde Reguły Anty-Halucynacyjne)** określającą, jakich usług firma nie świadczy i kiedy odsyłać do kontaktu bezpośredniego.
    - Dopisz domenę produkcyjną witryny do zmiennej `ALLOWED_ORIGINS` w `/opt/devops-stack/.env` na serwerze VPS.
-4. **Bezpieczeństwo XSS, Zero-Downtime Fallback i Obserwowalność:**
+5. **Bezpieczeństwo XSS, Zero-Downtime Fallback i Obserwowalność:**
    - Odpowiedzi na frontendzie są parsowane przez `formatMarkdown()` (escapowanie `& < > " '` przed renderowaniem pogrubień, list i linków).
-   - W razie braku internetu po stronie klienta lub chwilowej niedostępności sieci, widget automatycznie odpowiada z lokalnej funkcji `getLocalFallbackAnswer()`.
+   - W razie braku internetu po stronie klienta lub chwilowej niedostępności sieci, widget automatycznie odpowiada z lokalnej funkcji `getLocalFallbackAnswer()` połączonej z wyszukiwarką `searchKnowledgeEntries()`.
    - Ruch, latencja `p50`/`p95`, wykorzystanie modeli i powody odrzuceń są monitorowane w czasie rzeczywistym na 25-panelowym dashboardzie Grafany **AI Router - Gemini Proxy Monitor** (`uid: ai-router-overview`, bez logowania treści pytań ani adresów IP zgodnie z ISO 27001).
 
 ---

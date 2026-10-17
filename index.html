@@ -4,12 +4,34 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Szablon startowy TwojaStronaWWW z pełną automatyzacją CI/CD, testami jednostkowymi i optymalizacją SEO.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#0f172a">
   <title>Szablon Witryny | TwojaStronaWWW</title>
+  <link rel="canonical" href="https://twojadomena.pl/">
   <link rel="preconnect" href="https://ai.twojastronawww.pl" crossorigin>
   <link rel="stylesheet" href="assets/css/main.css">
   <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" type="image/x-icon">
+  <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
   <link rel="manifest" href="site.webmanifest">
-  <meta name="theme-color" content="#ffffff">
+
+  <!-- Open Graph / Social -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://twojadomena.pl/">
+  <meta property="og:title" content="Szablon Witryny | TwojaStronaWWW">
+  <meta property="og:description" content="Profesjonalne rozwiązania webowe oparte na czystym kodzie, wysokiej dostępności (WCAG) i maksymalnej wydajności.">
+  <meta property="og:image" content="https://twojadomena.pl/assets/img/favicon.svg">
+
+  <!-- Schema.org JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "TwojaStronaWWW",
+    "url": "https://twojadomena.pl/",
+    "email": "kontakt@twojastronawww.pl",
+    "description": "Profesjonalne strony internetowe w czystym kodzie z pełną automatyzacją CI/CD i optymalizacją SEO."
+  }
+  </script>
 </head>
 <body>
   <header>
@@ -19,7 +41,7 @@
         <div class="brand">
           <span class="logo">TwojaStronaWWW</span>
         </div>
-        <button id="menu-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Przełącz menu">Menu</button>
+        <button type="button" id="menu-toggle" class="hamburger" aria-expanded="false" aria-controls="primary-nav" aria-label="Przełącz menu">Menu</button>
         <ul id="primary-nav" class="nav-links">
           <li><a href="#about">O nas</a></li>
           <li><a href="#services">Usługi</a></li>

@@ -36,9 +36,29 @@ describe('Integralność i składnia arkuszy stylów CSS (assets/css/main.css)',
     assert.match(mainCss, /--color-text:/i);
   });
 
-  it('arkusz nie powinien zawierać pustych reguł CSS bez deklaracji właściwości', () => {
+  it('wszystkie użyte zmienne var(--token) bez fallbacku posiadają definicję w :root', () => {
+    const definedVars = new Set();
+    const defRegex = /(--[a-zA-Z0-9-]+)\s*:/g;
+    let m;
+    while ((m = defRegex.exec(mainCss)) !== null) {
+      definedVars.add(m[1]);
+    }
+
+    const useRegex = /var\(\s*(--[a-zA-Z0-9-]+)\s*\)/g;
+    let u;
+    while ((u = useRegex.exec(mainCss)) !== null) {
+      const varName = u[1];
+      assert.ok(
+        definedVars.has(varName),
+        `Niezdefiniowana zmienna CSS ${varName} użyta w main.css`
+      );
+    }
+  });
+
+  it('arkusz nie powinien zawierać pustych reguł CSS bez deklaracji właściwości oraz powinien wspierać prefers-reduced-motion', () => {
     const emptyRuleRegex = /[^{}]+\{\s*\}/g;
     const emptyInMain = mainCss.match(emptyRuleRegex);
     assert.strictEqual(emptyInMain, null, `Wykryto puste reguły w main.css: ${emptyInMain}`);
+    assert.match(mainCss, /prefers-reduced-motion:\s*reduce/i);
   });
 });

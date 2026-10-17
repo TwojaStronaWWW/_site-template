@@ -35,6 +35,12 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     const ciContent = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', 'ci.yml'), 'utf-8');
     assert.match(ciContent, /gitleaks/i);
     assert.match(ciContent, /smoke-diagnostics/i);
+
+    for (const deployWf of ['deploy-staging.yml', 'deploy-production.yml']) {
+      const deployContent = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', deployWf), 'utf-8');
+      assert.match(deployContent, /!scripts\*/i, `${deployWf} musi wykluczać katalog scripts/ z transferu SFTP`);
+      assert.match(deployContent, /!docker-compose\.yml/i, `${deployWf} musi wykluczać docker-compose.yml z transferu SFTP`);
+    }
   });
 
   it('kluczowe pliki źródłowe nie mogą zawierać pozostałości po konfliktach gita (merge conflict markers)', () => {
@@ -189,15 +195,60 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     assert.strictEqual(serveModule.SECURITY_HEADERS['X-Content-Type-Options'], 'nosniff');
     assert.ok(serveModule.MIME_TYPES['.webmanifest']);
 
-    const validResult = serveModule.resolveSafeFilePath('/index.html', ROOT_DIR);
+    const validResult = serveModule.resolveSafeFilePath('/', ROOT_DIR);
     assert.strictEqual(validResult.isAllowed, true);
 
     const traversalResult = serveModule.resolveSafeFilePath('/../../etc/passwd', ROOT_DIR);
     assert.strictEqual(traversalResult.isAllowed, false, 'Serwer powinien blokować próby Directory Traversal');
 
+    const sensitiveResult = serveModule.resolveSafeFilePath('/.env', ROOT_DIR);
+    assert.strictEqual(sensitiveResult.isAllowed, false, 'Serwer powinien blokować dostęp do pliku .env');
+
+    const malformedResult = serveModule.resolveSafeFilePath('/%E0%A4%A', ROOT_DIR);
+    assert.strictEqual(malformedResult.isMalformed, true, 'Serwer powinien wykrywać uszkodzone URI');
+
+    // Weryfikacja obsługi odpowiedzi HTTP w scripts/serve.js (400, 403, 404)
+    const dispatchReq = (url) => new Promise((resolve) => {
+      let statusCode = 0;
+      const res = {
+        headersSent: false,
+        writeHead(code) { statusCode = code; this.headersSent = true; },
+        end(body) { resolve({ statusCode, body }); },
+        on() {},
+        once() {},
+        emit() {}
+      };
+      serveModule.server.emit('request', { url }, res);
+    });
+
+    const res400 = await dispatchReq('/%E0%A4%A');
+    assert.strictEqual(res400.statusCode, 400);
+
+    const res403 = await dispatchReq('/.env');
+    assert.strictEqual(res403.statusCode, 403);
+
+    const res404 = await dispatchReq('/nie-istnieje-404.html');
+    assert.strictEqual(res404.statusCode, 404);
+
     const pdfModule = await import('../../scripts/generate-pdf.js');
     assert.strictEqual(typeof pdfModule.findBrowserBinary, 'function');
     assert.strictEqual(typeof pdfModule.generatePdf, 'function');
+
+    const pkgPath = path.join(ROOT_DIR, 'package.json');
+    assert.strictEqual(pdfModule.findBrowserBinary('linux', { CHROME_PATH: pkgPath }), pkgPath);
+    assert.strictEqual(pdfModule.findBrowserBinary('linux', {}, () => pkgPath), pkgPath);
+    assert.strictEqual(pdfModule.findBrowserBinary('linux', {}, () => { throw new Error('missing'); }), null);
+    const winResult = pdfModule.findBrowserBinary('win32', {});
+    assert.ok(winResult === null || typeof winResult === 'string');
+
+    assert.throws(
+      () => pdfModule.generatePdf(path.join(ROOT_DIR, 'dist', 'test.pdf'), { inputHtml: path.join(ROOT_DIR, 'brak.html') }),
+      /Plik źródłowy HTML nie istnieje/
+    );
+    assert.throws(
+      () => pdfModule.generatePdf(path.join(ROOT_DIR, 'dist', 'test.pdf'), { browser: null }),
+      /Nie znaleziono silnika Chromium/
+    );
   });
 
   it('standard Asystenta AI (assets/js/ai-widget.js, docs/AI_KNOWLEDGE_TEMPLATE.md oraz test jednostkowy) powinien istnieć i nie zawierać kluczy API (ISO 27001)', () => {

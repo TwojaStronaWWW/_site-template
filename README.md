@@ -56,57 +56,75 @@ W architekturze szablonu połączono bezkompromisową szybkość czystego fronte
 ```plaintext
 _site-template/
 ├── .github/
-│   ├── dependabot.yml              # Automatyczne comiesięczne aktualizacje akcji i npm
-│   ├── pull_request_template.md    # Quality gate checklist dla PR
-│   ├── ISSUE_TEMPLATE/             # Szablony zgłoszeń błędów i zadań (bug, task, config)
+│   ├── dependabot.yml                  # Automatyczne comiesięczne aktualizacje akcji i npm
+│   ├── pull_request_template.md        # Quality gate checklist dla PR
+│   ├── ISSUE_TEMPLATE/                 # Szablony zgłoszeń błędów i zadań (bug, task, config)
 │   └── workflows/
-│       ├── ci.yml                  # Quality Gate + walidacja PHP + testy + Lighthouse CI
-│       ├── deploy-staging.yml      # Bezpieczny transfer SFTP na staging LH (z Quality Gate)
-│       └── deploy-production.yml   # Wdrożenie produkcyjne + Cloudflare Purge Cache + release tag
+│       ├── ci.yml                      # Quality Gate + Gitleaks + PHP + node:test + Playwright Smoke + Lighthouse CI
+│       ├── dependabot-automerge.yml    # Automatyczne scalanie aktualizacji patch/minor z Dependabota
+│       ├── deploy-staging.yml          # Bezpieczny transfer SFTP na staging LH (z Quality Gate)
+│       └── deploy-production.yml       # Wdrożenie produkcyjne SFTP + Cloudflare Purge Cache + release tag
 ├── .githooks/
-│   ├── pre-commit                  # Lokalny strażnik jakości (blokada .env i npm run check)
-│   └── commit-msg                  # Strażnik formatu Conventional Commits
+│   ├── pre-commit                      # Lokalny strażnik jakości (blokada .env i npm run check)
+│   └── commit-msg                      # Strażnik formatu Conventional Commits
 ├── api/
-│   ├── rate_limits/                # Pamięć liczników IP rate-limitera (.htaccess: Deny from all)
-│   ├── sessions/                   # Bezpieczny magazyn sesji PHP (.htaccess: Deny from all)
-│   ├── contact.php                 # Wzorcowy backend formularza (Honeypot, Cloudflare IP, CSRF)
-│   └── lead_recovery.php           # Wzorcowy mechanizm ratowania utraconych leadów
+│   ├── .htaccess                       # Blokada bezpośredniego odczytu plików CSV
+│   ├── contact.php                     # Wzorcowy backend formularza (Multi-Honeypot, RODO mask_ip, osTicket + Autoresponder)
+│   ├── leads-store.php                 # Atomowy zapis i odczyt leadów CSV (flock LOCK_EX)
+│   ├── rate-limit.php                  # Plikowy Rate-Limiter IP z Garbage Collectorem
+│   ├── lead_recovery.php               # Endpoint informacyjny o RODO-zgodnym zapisie szkicu w localStorage
+│   ├── R2Client.php                    # Natywny klient obiektowy Cloudflare R2 (AWS SigV4)
+│   ├── rate_limits/                    # Pamięć liczników IP rate-limitera (.htaccess: Deny from all)
+│   └── sessions/                       # Bezpieczny magazyn sesji PHP (.htaccess: Deny from all)
 ├── assets/
 │   ├── css/
-│   │   └── main.css                # Responsywny system stylów (reset, zmienne, Dark Mode)
+│   │   └── main.css                    # Responsywny system stylów (reset, zmienne :root, Tabs, Lightbox, Formularz)
 │   ├── js/
-│   │   ├── main.js                 # Moduł nawigacji i interakcji z obsługą a11y
-│   │   └── ai-widget.js            # Uniwersalny widget Asystenta AI (RAG via VPS, Multi-Turn, XSS-safe)
-│   └── img/                        # Zoptymalizowane grafiki i favikony
+│   │   ├── main.js                     # Moduł nawigacji, zakładek, lightboxa i formularza kontaktowego (a11y)
+│   │   └── ai-widget.js                # Uniwersalny widget Asystenta AI (RAG via VPS, Multi-Turn, XSS-safe)
+│   └── img/                            # Zoptymalizowane grafiki i ikony SVG
 ├── docs/
-│   ├── AI_KNOWLEDGE_TEMPLATE.md    # Wzorzec bazy wiedzy RAG (<site_id>-knowledge.txt) dla VPS AI Routera
-│   └── CLOUDFLARE_STANDARDS.md     # Pełny standard konfiguracji Cloudflare CDN / DNS
+│   ├── AI_KNOWLEDGE_TEMPLATE.md        # Wzorzec bazy wiedzy RAG (<site_id>-knowledge.txt) dla VPS AI Routera
+│   └── CLOUDFLARE_STANDARDS.md         # Pełny standard konfiguracji Cloudflare CDN / DNS / R2
 ├── scripts/
-│   └── serve.js                    # Lekki lokalny serwer developerski w czystym Node.js
+│   ├── serve.js                        # Lekki lokalny serwer developerski w czystym Node.js
+│   ├── generate-pdf.js                 # Bezbiblioteczny generator PDF przez Headless Chromium
+│   ├── migrate-to-r2.php               # Skrypt CLI do migracji mediów do Cloudflare R2
+│   └── preview-tunnel.ps1 / .sh        # Szyfrowany podgląd przez Cloudflare Quick Tunnel
 ├── tests/
 │   ├── helpers/
-│   │   └── mock-dom.js             # Lekki mock przeglądarki w czystym Node.js (bez jsdom)
+│   │   └── mock-dom.js                 # Lekki mock przeglądarki w czystym Node.js (bez jsdom)
+│   ├── smoke/
+│   │   └── ui-smoke.js                 # Przeglądarkowy test dymny UI (Playwright Chromium)
 │   └── unit/
-│       ├── ai-widget.test.js       # Testy widgetu AI (ochrona XSS, pamięć rozmowy, fallback offline)
-│       ├── css-integrity.test.js   # Testy spójności CSS i zmiennych systemowych
-│       ├── html-integrity.test.js  # Weryfikacja struktury HTML5 i standardów WCAG
-│       ├── main.test.js            # Uniwersalne testy interakcji UI (ARIA, Escape)
-│       └── repo-hygiene.test.js    # Czystość repozytorium, ISO 27001, hooki, SEO, PWA, AI
-├── .editorconfig                   # Uniwersalny standard formatowania kodu w IDE
-├── .gitattributes                  # Normalizacja LF dla skryptów/hooków i obsługa binary
-├── .gitignore                      # Rygor ISO 27001: ignorowanie sesji, logów i danych leadów CSV
-├── .lighthouserc.json              # Konfiguracja progów audytu Lighthouse CI (min. 90%)
-├── AGENTS.md / GEMINI.md           # Zasady dla modeli AI (obowiązkowe TDD, Quality Gate i integracja VPS)
-├── BLUEPRINT.md                    # Szczegółowy manifest architektoniczny szablonu (Kroki 1–19)
-├── favicon.ico                     # Wielorozdzielczy favicon (16x16, 32x32, 48x48)
-├── site.webmanifest                # Manifest PWA (theme-color, standalone)
-├── index.html                      # Semantyczny szkielet HTML5 (WCAG 2.1)
-├── package.json                    # Konfiguracja skryptów npm (bez frameworków)
-├── robots.txt                      # Szablon indeksowania dla botów
-├── sitemap.xml                     # Szablon mapy witryny
-├── LICENSE                         # Prawa autorskie TwojaStronaWWW
-├── SECURITY.md                     # Polityka bezpieczeństwa ISO 27001 (Responsible Disclosure)
-└── README.md                       # Pełna dokumentacja i runbook
+│       ├── ai-widget.test.js           # Testy widgetu AI (ochrona XSS, pamięć rozmowy, fallback offline)
+│       ├── css-integrity.test.js       # Testy spójności CSS i zmiennych systemowych
+│       ├── html-integrity.test.js      # Weryfikacja struktury HTML5, linków lokalnych i standardów WCAG
+│       ├── main.test.js                # Testy interakcji UI (nawigacja, zakładki, lightbox, formularz)
+│       └── repo-hygiene.test.js        # Czystość repozytorium, ISO 27001, hooki, SEO, PWA, AI
+├── .editorconfig                       # Uniwersalny standard formatowania kodu w IDE
+├── .env.example                        # Szablon zmiennych środowiskowych (ISO 27001)
+├── .gitattributes                      # Normalizacja LF dla skryptów/hooków i obsługa binary
+├── .gitignore                          # Rygor ISO 27001: ignorowanie sesji, logów i danych leadów CSV
+├── .gitleaks.toml                      # Konfiguracja skanera sekretów Gitleaks
+├── .htaccess                           # Nagłówki bezpieczeństwa OWASP i blokada plików wrażliwych
+├── .htmlhintrc                         # Konfiguracja reguł statycznych HTML
+├── .lighthouserc.json                  # Konfiguracja progów audytu Lighthouse CI (min. 90%)
+├── docker-compose.yml                  # Lokalne środowisko PHP 8.3 + Apache
+├── eslint.config.mjs                   # Konfiguracja reguł statycznej analizy JS
+├── sw.js                               # Service Worker (PWA Offline Support)
+├── AGENTS.md / GEMINI.md               # Zasady dla modeli AI (obowiązkowe TDD, Quality Gate i integracja VPS)
+├── BLUEPRINT.md                        # Szczegółowy manifest architektoniczny szablonu (Kroki 1–19)
+├── ROADMAP.template.md                 # Szablon rejestru sprintów i wydań
+├── favicon.ico                         # Wielorozdzielczy favicon (16x16, 32x32, 48x48)
+├── site.webmanifest                    # Manifest PWA (theme-color, standalone)
+├── index.html                          # Semantyczny szkielet HTML5 (WCAG 2.1)
+├── package.json                        # Konfiguracja skryptów npm (bez frameworków)
+├── robots.txt                          # Szablon indeksowania dla botów
+├── sitemap.xml                         # Szablon mapy witryny
+├── LICENSE                             # Prawa autorskie TwojaStronaWWW
+├── SECURITY.md                         # Polityka bezpieczeństwa ISO 27001 (Responsible Disclosure)
+└── README.md                           # Pełna dokumentacja i runbook
 ```
 
 ---

@@ -1,9 +1,16 @@
 /**
- * TwojaStronaWWW - Moduł Asystenta AI (Universal Embeddable AI Agent Widget v2.2)
+ * TwojaStronaWWW - Moduł Asystenta AI (Universal Embeddable AI Agent Widget v3.0)
  *
- * Architektura Platform-First & Zero-Bloat (Vanilla ES6+):
+ * Skumulowane najlepsze praktyki z TwojaStronaWWW, FuegoLingua, KatoSalsaHub & _site-template:
+ * - Architektura Platform-First & Zero-Bloat (Vanilla ES6+, 100% Separation of Concerns - brak stylów inline)
  * - Komunikacja z centralnym routerem AI na VPS (https://ai.twojastronawww.pl/chat-router.php)
- * - Obsługa 7-modelowej kaskady High-Availability (Gemini 2.5/3 + Gemma 3 + Groq + OpenRouter) po stronie VPS
+ * - Obsługa 7-modelowej kaskady High-Availability po stronie VPS
+ * - Dynamiczne Centrum Wiedzy ze strony i bazy JSON/Wiki (np. Salsopedia) z wyszukiwaniem fleksyjnym
+ * - Dwupoziomowy Response Cache (pamięć podręczna zapytań): gdy klient zapyta dwa razy o to samo,
+ *   odpowiedź wraca w 0 ms z cache bez ponownego odpytywania modelu AI
+ * - Automatyczna inwalidacja i aktualizacja wiedzy (Cache Busting on Knowledge Change):
+ *   każda zmiana w Salsopedii / bazie danych zmienia hash wersji wiedzy (kbVersion),
+ *   automatycznie odświeżając odpowiedzi nawet dla wcześniej zapisanych zapytań
  * - Pamięć rozmowy Multi-Turn (do 8 ostatnich wiadomości w sessionStorage)
  * - Bezpieczny mikro-parser Markdown (100% odporny na XSS)
  * - Szybkie podpowiedzi pytań (Quick Prompts per site_id)
@@ -13,9 +20,9 @@
 export const QUICK_PROMPTS_MAP = {
   twojastronawww: [
     'Ile kosztuje strona WWW?',
+    'Dlaczego kod zamiast WordPressa?',
     'Wdrożenie czatbota AI (RAG)',
-    'Jak wygląda współpraca?',
-    'Kontakt i darmowa wycena'
+    'Jak wygląda współpraca?'
   ],
   fuegolingua: [
     'Bezpłatna lekcja próbna',
@@ -24,11 +31,227 @@ export const QUICK_PROMPTS_MAP = {
     'Hiszpański w biznesie / branżowy'
   ],
   katosalsahub: [
-    'Ile kosztuje karnet?',
-    'Czy akceptujecie Multisport?',
-    'Kursy od podstaw (P0)'
+    'Czym jest Salsopedia i jak z niej korzystać?',
+    'Co to jest Enchufla i Dile Que No?',
+    'Gdzie tańczymy i jak działa Radio?',
+    'Jak dodać lub poprawić hasło w Salsopedii?'
   ]
 };
+
+const CATEGORY_LABELS_PL = {
+  steps: 'Kroki (Podstawy)',
+  figures: 'Figury (Casino / Rueda)',
+  dance: 'Taniec',
+  styles: 'Style Tańca',
+  music: 'Muzyka',
+  instruments: 'Instrumenty',
+  bands: 'Zespoły i Artyści',
+  history: 'Historia',
+  gods: 'Bogowie (Orishas)',
+  instructors: 'Instruktorzy',
+  schools: 'Szkoły Tańca'
+};
+
+/**
+ * Normalizuje tekst zapytania do klucza pamięci podręcznej (Response Cache)
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeCacheQuery(text) {
+  if (!text) return '';
+  return String(text)
+    .toLowerCase()
+    .replace(/[?!.,;:]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Usuwa znaki diakrytyczne (PL / ES) i upraszcza tekst do wyszukiwania pełnotekstowego
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeSearchText(text) {
+  if (!text) return '';
+  const map = {
+    ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ź: 'z', ż: 'z',
+    á: 'a', é: 'e', í: 'i', ú: 'u', ü: 'u', ñ: 'n'
+  };
+  return String(text)
+    .toLowerCase()
+    .replace(/[ąćęłńóśźżáéíúüñ]/g, (ch) => map[ch] || ch)
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Szybki, deterministyczny skrót wersji bazy wiedzy (FNV-1a 32-bit + rozmiar bazy).
+ * Każda zmiana w Salsopedii (dodanie hasła, zmiana definicji, weryfikacja, usunięcie)
+ * natychmiast generuje nowy identyfikator wersji wiedzy.
+ * @param {Array<Object>} entries
+ * @returns {string}
+ */
+export function computeKnowledgeVersion(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return 'kb_v0_empty';
+  }
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < entries.length; i++) {
+    const item = entries[i] || {};
+    const cats = Array.isArray(item.category) ? item.category.join(',') : String(item.category || '');
+    const record = `${item.id || ''}|${item.term || ''}|${item.definition || ''}|${cats}|${item.status || ''}|${item.verification_count || 0}|${item.last_updated || ''}`;
+    for (let j = 0; j < record.length; j++) {
+      hash ^= record.charCodeAt(j);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  }
+  return `kb_v${entries.length}_${hash.toString(16)}`;
+}
+
+/**
+ * Przeszukuje dynamiczną bazę wiedzy (np. Salsopedię) pod kątem zapytania użytkownika.
+ * Obsługuje odmianę fleksyjną (rdzenie słów), nazwy pojęć, definicje, kategorie i źródła.
+ * @param {string} question
+ * @param {Array<Object>} entries
+ * @param {number} limit
+ * @returns {Array<Object>}
+ */
+export function searchKnowledgeEntries(question, entries, limit = 5) {
+  if (!question || !Array.isArray(entries) || entries.length === 0) return [];
+
+  const qNorm = normalizeSearchText(question);
+  if (!qNorm) return [];
+
+  const stopWords = new Set([
+    'co', 'to', 'jest', 'sa', 'jak', 'jaki', 'jaka', 'jakie', 'gdzie', 'kiedy',
+    'czy', 'na', 'w', 'we', 'z', 'ze', 'do', 'od', 'po', 'o', 'i', 'a', 'oraz',
+    'lub', 'albo', 'mi', 'sie', 'tym', 'ten', 'ta', 'te', 'oznacza', 'znaczy',
+    'opowiedz', 'wyjasnij', 'powiedz', 'czym', 'kim', 'kto', 'mozna', 'jakis',
+    'salsopedii', 'salsopedia', 'salsa', 'salsie', 'tancu', 'taniec', 'figura', 'krok'
+  ]);
+
+  const rawTokens = qNorm.split(' ').filter((t) => t.length >= 2 && !stopWords.has(t));
+  const stems = rawTokens.map((t) => {
+    if (t.length >= 6) return t.replace(/(ach|ami|owi|iem|om|ie|ow|ej|ym|im|ia|iu|ek|ka|ki|ce|ke|y|a|e|i|u|o)$/, '');
+    if (t.length >= 5) return t.replace(/(ie|ow|ej|ym|ia|ka|ki|ce|y|a|e|i|u)$/, '');
+    return t;
+  }).filter((s) => s.length >= 3);
+
+  const categoryAliases = {
+    steps: ['krok', 'kroki', 'podstaw', 'basico', 'guapea'],
+    figures: ['figur', 'rueda', 'ruedzie', 'komend', 'casino', 'wystep'],
+    styles: ['styl', 'odmian', 'gatun', 'rodzaj'],
+    music: ['muzyk', 'rytm', 'clave', 'utwor', 'piosen'],
+    instruments: ['instrument', 'beben', 'bebny', 'perkuj', 'conga', 'timbales', 'clave'],
+    bands: ['zespol', 'orkiestr', 'artyst', 'kapel', 'spiewa', 'muzykant', 'van', 'havana'],
+    history: ['histori', 'korzen', 'pochodz', 'tradycj', 'kuba'],
+    gods: ['orish', 'orisza', 'bog', 'bostw', 'santeri', 'yorub', 'afro', 'chango', 'eleggua', 'yemaya', 'oshun'],
+    instructors: ['instruktor', 'nauczyciel', 'prowadz', 'trener', 'uczy'],
+    schools: ['szkol', 'kurs', 'zajec', 'lekcj', 'gdzie uczyc']
+  };
+
+  const matchedCategories = new Set();
+  for (const [catKey, keywords] of Object.entries(categoryAliases)) {
+    if (keywords.some((kw) => qNorm.includes(kw))) {
+      matchedCategories.add(catKey);
+    }
+  }
+
+  const scored = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.term) continue;
+
+    const termNorm = normalizeSearchText(entry.term);
+    const termClean = termNorm.replace(/\([^)]*\)/g, '').trim();
+    const defNorm = normalizeSearchText(entry.definition || '');
+    const cats = Array.isArray(entry.category) ? entry.category : (entry.category ? [entry.category] : []);
+
+    let score = 0;
+
+    // 1. Dokładne lub bezpośrednie wystąpienie nazwy hasła w pytaniu
+    if (termNorm && qNorm === termNorm) {
+      score += 120;
+    } else if (termClean && termClean.length >= 3 && qNorm.includes(termClean)) {
+      score += 85;
+    } else if (termNorm && termNorm.length >= 3 && qNorm.includes(termNorm)) {
+      score += 80;
+    }
+
+    // 2. Dopasowanie poszczególnych słów i rdzeni (stemming) w nazwie hasła
+    for (const token of rawTokens) {
+      if (termNorm.split(' ').includes(token)) {
+        score += 45;
+      } else if (token.length >= 3 && termNorm.includes(token)) {
+        score += 30;
+      }
+      if (token.length >= 3 && defNorm.includes(token)) {
+        score += 10;
+      }
+    }
+
+    for (const stem of stems) {
+      if (stem.length >= 3 && termNorm.includes(stem)) {
+        score += 22;
+      }
+      if (stem.length >= 4 && defNorm.includes(stem)) {
+        score += 6;
+      }
+    }
+
+    // 3. Dopasowanie po kategorii
+    for (const cat of cats) {
+      if (matchedCategories.has(cat)) {
+        score += 14;
+      }
+    }
+
+    if (score > 0) {
+      scored.push({ entry, score });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score || String(a.entry.term).localeCompare(String(b.entry.term), 'pl'));
+  return scored.slice(0, limit).map((item) => item.entry);
+}
+
+/**
+ * Buduje zwięzły kontekst RAG z dynamicznej bazy wiedzy (np. Salsopedii) do przesłania do routera AI
+ * @param {string} question
+ * @param {Array<Object>} entries
+ * @returns {string}
+ */
+export function buildDynamicContext(question, entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return '';
+
+  const matched = searchKnowledgeEntries(question, entries, 6);
+  const catCounts = {};
+  for (const item of entries) {
+    const cats = Array.isArray(item.category) ? item.category : [item.category];
+    for (const c of cats) {
+      if (c) catCounts[c] = (catCounts[c] || 0) + 1;
+    }
+  }
+
+  const summaryParts = Object.entries(catCounts).map(
+    ([cat, count]) => `${CATEGORY_LABELS_PL[cat] || cat}: ${count}`
+  );
+
+  let context = `[AKTUALNY STAN BAZY SALSOPEDII (${ computeKnowledgeVersion(entries) })]: Łącznie ${entries.length} haseł (${summaryParts.join(', ')}).\n`;
+
+  if (matched.length > 0) {
+    context += 'Najbardziej pasujące hasła z Salsopedii na stronie:\n';
+    for (const m of matched) {
+      const catsLabel = (Array.isArray(m.category) ? m.category : [m.category])
+        .map((c) => CATEGORY_LABELS_PL[c] || c)
+        .join(', ');
+      context += `- **${m.term}** [Kategoria: ${catsLabel}]: ${m.definition}\n`;
+    }
+  }
+
+  return context.trim();
+}
 
 /**
  * Bezpieczny mikro-parser Markdown (100% odporny na XSS)
@@ -92,27 +315,142 @@ export function formatMarkdown(rawText) {
 
 /**
  * Lokalna odpowiedź awaryjna (Zero-Downtime Fallback) dopasowana do projektu
+ * oraz dynamicznej bazy wiedzy ze strony (np. Salsopedii).
  * @param {string} question
  * @param {string} siteId
+ * @param {Array<Object>} knowledgeEntries
  * @returns {string}
  */
-export function getLocalFallbackAnswer(question, siteId = 'twojastronawww') {
+export function getLocalFallbackAnswer(question, siteId = 'twojastronawww', knowledgeEntries = []) {
   const q = String(question || '').toLowerCase();
+  const qNorm = normalizeSearchText(question);
 
-  if (q.includes('ai') || q.includes('czat') || q.includes('bot') || q.includes('rag')) {
-    return 'Wdrażamy **asystentów AI z bazą wiedzy firmy (RAG)** zintegrowanych z naszą centralną bramką kaskadową (7 modeli LLM, 0 zł abonamentu za silnik).\n- Automatyczne odpowiedzi 24/7 na podstawie cennika i oferty firmy\n- Pełna odporność na awarie i limity API\nSkorzystaj z formularza kontaktowego, aby zamówić bezpłatną wycenę!';
+  // 1. Obsługa Kato Salsa Hub & Salsopedii (główne centrum wiedzy + wiedza o całym portalu)
+  if (siteId === 'katosalsahub' || (Array.isArray(knowledgeEntries) && knowledgeEntries.length > 0)) {
+    const isMetaSalsopediaQuestion =
+      qNorm.includes('salsoped') ||
+      qNorm.includes('encykloped') ||
+      qNorm.includes('wikiped') ||
+      qNorm.includes('dodac hasl') ||
+      qNorm.includes('zaproponowac hasl') ||
+      qNorm.includes('zglosic poprawk') ||
+      qNorm.includes('poprawic hasl') ||
+      qNorm.includes('moderacj') ||
+      qNorm.includes('weryfikacj') ||
+      qNorm.includes('ile hasel');
+
+    const matchedEntries = searchKnowledgeEntries(question, knowledgeEntries, 3);
+
+    // Jeśli użytkownik pyta o konkretne pojęcie z Salsopedii (np. Enchufla, Guapea, Clave, Los Van Van, Orishas)
+    if (matchedEntries.length > 0 && !isMetaSalsopediaQuestion) {
+      const top = matchedEntries[0];
+      const cats = (Array.isArray(top.category) ? top.category : [top.category])
+        .filter(Boolean)
+        .map((c) => CATEGORY_LABELS_PL[c] || c)
+        .join(', ');
+
+      let response = `W **Salsopedii** znajdziesz dokładne wyjaśnienie hasła **${top.term}**${cats ? ` (${cats})` : ''}:\n- ${top.definition}`;
+      if (matchedEntries.length > 1) {
+        const related = matchedEntries
+          .slice(1)
+          .map((e) => `**${e.term}** (${e.definition})`)
+          .join('\n- ');
+        response += `\nPowiązane pojęcia w Salsopedii:\n- ${related}`;
+      }
+      response += `\nPełny katalog haseł z wyszukiwarką i linkowaniem znajdziesz w zakładce https://katosalsahub.pl/salsopedia.html`;
+      return response;
+    }
+
+    // Pytania o samą Salsopedię: czym jest, jak działa, jak dodać hasło lub poprawkę, kategorie
+    if (isMetaSalsopediaQuestion) {
+      const countInfo = Array.isArray(knowledgeEntries) && knowledgeEntries.length > 0
+        ? `obecnie **${knowledgeEntries.length} haseł**`
+        : 'ponad **115 haseł**';
+      return `**Salsopedia** to nasza otwarta encyklopedia salsy kubańskiej i kultury afro-kubańskiej (zawiera ${countInfo} w 11 kategoriach: Kroki, Figury Casino/Rueda, Taniec, Style, Muzyka, Instrumenty, Zespoły, Historia, Bogowie Orishas, Instruktorzy i Szkoły Tańca):\n- **Wyszukiwanie i linki**: wpisz frazę w wyszukiwarce lub klikaj podświetlone pojęcia bezpośrednio w definicjach\n- **Dodawanie i edycja (Salsopedia Studio)**: kliknij **„Zaproponuj hasło”** lub **„Zgłoś poprawkę”** przy karcie — zobaczysz podgląd na żywo oraz porównanie zmian *Przed vs Po (Diff)*\n- **Weryfikacja merytoryczna**: zgłoszenia trafiają do kolejki moderacji i są oznaczane statusem potwierdzenia instruktorskiego.`;
+    }
+
+    // Pytania o Radio Timba Nation 24/7 i wyłącznik czasowy
+    if (qNorm.includes('radio') || qNorm.includes('timba nation') || qNorm.includes('sluchac') || qNorm.includes('timer') || qNorm.includes('wylacznik')) {
+      return '**Timba Nation Radio 🎺** gra na naszej stronie kubańską salsę i timbę **24/7 non-stop**:\n- Kliknij przycisk **▶ Włącz radio** w górnym pasku nawigacji lub w sekcji **#radio**\n- Odtwarzacz pokazuje aktualnie grany utwór i obsługuje sterowanie z ekranu blokady telefonu\n- Możesz ustawić **wyłącznik czasowy (Sleep Timer)** na **15, 30 lub 60 minut**.';
+    }
+
+    // Pytania o DancePuls, imprezy, wydarzenia, warsztaty, sociale
+    if (qNorm.includes('dancepuls') || qNorm.includes('imprez') || qNorm.includes('wydarzen') || qNorm.includes('event') || qNorm.includes('weekend') || qNorm.includes('warsztat') || qNorm.includes('social') || qNorm.includes('kiedy')) {
+      return 'Aktualne imprezy taneczne (sociale), warsztaty i festiwale sprawdzisz w dwóch miejscach:\n- **DancePuls** (https://dancepuls.katosalsahub.pl/) — nasz automatyczny kalendarz i zestawienie imprez Salsa, Bachata i Kizomba na Śląsku i w Krakowie\n- **Grupa Facebook Kato Salsa Hub** (https://www.facebook.com/groups/519446499987373) — bieżące umawianie się na potańcówki plenerowe i wyjścia grupowe.';
+    }
+
+    // Pytania o lokalizację: gdzie tańczymy, Dolina Trzech Stawów, mapa, Katowice
+    if (qNorm.includes('gdzie') || qNorm.includes('lokalizacj') || qNorm.includes('lokacj') || qNorm.includes('dolin') || qNorm.includes('staw') || qNorm.includes('adres') || qNorm.includes('mapa') || qNorm.includes('katowic')) {
+      return 'Sercem naszych plenerowych spotkań w Katowicach jest **Dolina Trzech Stawów** (sprawdź interaktywną mapę w sekcji **#mapa** na stronie głównej) oraz kluby i szkoły tańca w **centrum Katowic** (m.in. okolice ul. Mariackiej, Rynku i Dworca PKP).\nW Salsopedii w kategorii **Szkoły Tańca** znajdziesz też szczegółowy opis śląskich szkół salsy i bachaty!';
+    }
+
+    // Pytania o ceny, karnety, Multisport, kursy od podstaw (P0), strój
+    if (qNorm.includes('cen') || qNorm.includes('koszt') || qNorm.includes('karnet') || qNorm.includes('multisport') || qNorm.includes('medicover') || qNorm.includes('fitprofit') || qNorm.includes('od podstaw') || qNorm.includes('p0') || qNorm.includes('poczatkuj') || qNorm.includes('ubrac') || qNorm.includes('buty') || qNorm.includes('par')) {
+      return 'Praktyczne informacje dla osób zaczynających przygodę z salsą i bachatą w Katowicach:\n- **Poziom P0 (od podstaw)**: nie potrzebujesz własnej pary ani wcześniejszego doświadczenia (w grupie rotujemy w parach)\n- **Ceny i karty sportowe**: otwarte potańcówki społecznościowe na Dolinie Trzech Stawów są bezpłatne, natomiast w katowickich szkołach tańca pojedyncze zajęcia kosztują ok. **40 PLN**, karnet miesięczny (4 wejścia) ok. **130 PLN**, a większość szkół akceptuje karty **Multisport, Medicover Sport i FitProfit**\n- **Jak się ubrać**: wygodny strój niekrępujący ruchów oraz zmienne obuwie na płaskiej podeszwie.';
+    }
+
+    // Pytania o style tańca na stronie
+    if (qNorm.includes('styl') || qNorm.includes('co tancz') || qNorm.includes('cubana') || qNorm.includes('bachat') || qNorm.includes('rueda') || qNorm.includes('son') || qNorm.includes('rumb') || qNorm.includes('afro') || qNorm.includes('reggaeton')) {
+      return 'W społeczności **Kato Salsa Hub** królują kubańskie i karaibskie rytmy:\n- **Salsa Cubana (Casino)**, **Timba** oraz zespołowa **Rueda de Casino**\n- Tradycyjny **Son Cubano**, **Rumba Cubana** (Guaguancó, Yambú, Columbia) oraz **Afro Cubano (Orishas)**\n- Nowoczesny **Reggaeton / Reparto**, **Salsa Liniowa** oraz **Bachata i Kizomba**\nKażdy z tych stylów i jego figury znajdziesz dokładnie opisane w naszej **Salsopedii**!';
+    }
+
+    // Pytania o kontakt / RODO
+    if (qNorm.includes('kontakt') || qNorm.includes('napisz') || qNorm.includes('wiadomosc') || qNorm.includes('formularz') || qNorm.includes('facebook') || qNorm.includes('mail')) {
+      return 'Skontaktujesz się z nami bezpośrednio przez:\n- **Formularz kontaktowy** w sekcji **#kontakt** na dole strony głównej (dbamy o RODO — wystarczy podać imię lub pseudonim)\n- **Grupę na Facebooku**: https://www.facebook.com/groups/519446499987373\n- **E-mail**: kontakt@katosalsahub.pl';
+    }
+
+    if (siteId === 'katosalsahub') {
+      const kbCount = Array.isArray(knowledgeEntries) && knowledgeEntries.length > 0 ? knowledgeEntries.length : 115;
+      return `Cześć! 💃🕺 Jestem asystentem **Kato Salsa Hub & Salsopedii**. Czerpię wiedzę na żywo z naszej **Salsopedii (${kbCount} haseł)** oraz całego portalu.\nZapytaj mnie o dowolną **figurę (np. Enchufla, Dile Que No, Setenta)**, **style kubańskie (Casino, Timba, Rueda, Son, Rumba, Afro)**, **Radio Timba Nation**, **gdzie tańczymy w Katowicach** lub **jak dodać hasło do Salsopedii**!`;
+    }
+  }
+
+  // 2. Obsługa FuegoLingua
+  if (siteId === 'fuegolingua') {
+    if (q.includes('próbn') || q.includes('probn') || q.includes('darmow') || q.includes('bezpłatn') || q.includes('bezplatn') || q.includes('konsultacj')) {
+      return 'Pierwsza **konsultacja wstępna online jest całkowicie bezpłatna**! To krótkie spotkanie, podczas którego poznajemy się, określamy Twój poziom i ustalamy plan nauki.\n- Zapisz się przez formularz na dole strony\n- Napisz na: kontakt@fuegolingua.pl\n- Zadzwoń: **796-868-967**';
+    }
+    if (q.includes('biznes') || q.includes('firm') || q.includes('stolar') || q.includes('budow') || q.includes('turyst') || q.includes('branż') || q.includes('specjalist')) {
+      return 'Prowadzimy dedykowane **kursy specjalistyczne** (cena maleje o **5 zł** za każdą dodatkową osobę, do 6 osób):\n- **Hiszpański w Biznesie**: od **130 zł** (60 min) / **160 zł** (90 min)\n- **Hiszpański w Stolarce i Budownictwie**: od **150 zł** (60 min) / **170 zł** (90 min)\n- **Hiszpański w Turystyce**: od **100 zł** (60 min) / **120 zł** (90 min)\nPełny wykaz znajdziesz w zakładce https://fuegolingua.pl/cennik.html';
+    }
+    if (q.includes('cen') || q.includes('koszt') || q.includes('ile ') || q.includes('pakiet') || q.includes('płaci')) {
+      return 'Oto nasz cennik dla **Ogólnych Poziomów (A1–B2)**:\n- **Lekcje indywidualne (1:1)**: 60 min – **95 zł** | 90 min – **135 zł**\n- **Lekcje w parze (2 osoby)**: 60 min – **85 zł/os.** | 90 min – **115 zł/os.**\n- **Grupy (3–6 osób)**: 60 min – **75 zł/os.** | 90 min – **95 zł/os.**\n- **Poziom Extreme (C1–C2)**: 1:1 od **140 zł** (60 min), w parze **120 zł/os.**, w grupie **100 zł/os.**\nPierwsza konsultacja jest **bezpłatna**!';
+    }
+    if (q.includes('indywidualn') || q.includes('grupow') || q.includes('parze') || q.includes('form') || q.includes('wygląda')) {
+      return 'Zajęcia odbywają się w **100% online na żywo**, a **80% lekcji to żywa rozmowa**:\n- **Indywidualnie (1:1)**: 100% uwagi lektora i tempo dopasowane do Ciebie (**95 zł** / 60 min na poz. A1–B2)\n- **W parze (2 os.)**: wspólna nauka ze znajomym lub partnerem (**85 zł/os.** / 60 min)\n- **Kameralne grupy (3–6 os.)**: duża dawka interakcji i wzajemnej motywacji (**75 zł/os.** / 60 min)';
+    }
+    if (q.includes('kontakt') || q.includes('telefon') || q.includes('mail') || q.includes('zapis')) {
+      return 'Skontaktuj się ze mną wygodnie:\n- E-mail: kontakt@fuegolingua.pl\n- Telefon: **796-868-967**\n- Instagram: **@fuegolingua_sin_limites**\nMożesz też wypełnić formularz kontaktowy na dole strony głównej!';
+    }
+    if (q.includes('tłumacz') || q.includes('tlumacz') || q.includes('delegacj') || q.includes('przysięgł') || q.includes('przysiegl')) {
+      return 'Główna działalność Fuego Lingua to **nauka hiszpańskiego**, a tłumaczenia nie są standardową usługą. Prowadząca jest w trakcie uzyskiwania uprawnień tłumacza przysięgłego, więc **na dziś nie wykonuje tłumaczeń przysięgłych**.\nW sprawie wyjazdu lub delegacji napisz na kontakt@fuegolingua.pl albo zadzwoń: **796-868-967**. Opisz termin i rodzaj zadania, a dostaniesz indywidualną odpowiedź.';
+    }
+    return 'Jestem wirtualnym doradcą **Fuego Lingua**. Zapytaj o bezpłatną konsultację, cennik zajęć indywidualnych i grupowych lub kursy specjalistyczne (kontakt@fuegolingua.pl, tel. **796-868-967**).';
+  }
+
+  // 3. Domyślna obsługa TwojaStronaWWW / Szablonu
+  if (q.includes('wordpress') || q.includes('wtyczk') || q.includes('kod') || q.includes('sql') || q.includes('szybk')) {
+    return 'Tworzymy strony w **czystym kodzie (architektura Flat-File)** zamiast ciężkiego WordPressa z dziesiątkami wtyczek:\n- **Waga poniżej 100 KB** i ładowanie **< 0.6s** (Google PageSpeed **95–100/100**)\n- **Brak bazy SQL** = zero ryzyka ataków SQL Injection i awarii po aktualizacjach\n- **100% kodu na własność** w repozytorium Git i brak ukrytych abonamentów.';
+  }
+
+  if (q.includes('ai') || q.includes('czat') || q.includes('bot') || q.includes('asystent') || q.includes('rag')) {
+    return 'Wdrażamy dedykowanych **Asystentów AI z bazą wiedzy firmy (RAG)** zintegrowanych z centralną bramką kaskadową (7 modeli LLM, pamięć podręczna zapytań):\n- Koszt wdrożenia: **od 900 PLN netto** (jednorazowa konfiguracja)\n- Działa **24/7**, odpowiada w ułamku sekundy z pamięci podręcznej i korzysta z darmowych pul API\n- Automatycznie przesyła powiadomienia na telefon, gdy klient zostawi namiar kontaktowy.';
+  }
+
+  if (q.includes('współprac') || q.includes('wspolprac') || q.includes('krok') || q.includes('proces') || q.includes('etap') || q.includes('czas') || q.includes('ile trwa') || q.includes('jak wygląda')) {
+    return 'Współpraca przebiega w **3 prostych krokach** (pełne wdrożenie w **7–14 dni roboczych**):\n- **Krok 1**: Bezpłatna konsultacja, analiza potrzeb i stała wycena w 24h\n- **Krok 2**: Projekt UX/UI, programowanie w czystym kodzie oraz podgląd na żywo przez szyfrowany link testowy\n- **Krok 3**: Testy jakościowe PageSpeed 95+, wdrożenie na domenie i **30 dni gwarancji**.';
   }
 
   if (q.includes('cen') || q.includes('koszt') || q.includes('ile ') || q.includes('pakiet') || q.includes('wycen')) {
-    return 'Każdy projekt wyceniamy przejrzyście przed startem prac:\n- **Strona wizytówka / Landing Page**: szybkie wdrożenie z optymalizacją SEO i wynikami Lighthouse 90+\n- **Strona firmowa z modułem AI (RAG)**: pełna obsługa klienta 24/7 i pozyskiwanie leadów\nNapisz przez formularz kontaktowy na dole strony – przygotujemy **bezpłatną wycenę w 24h**!';
+    return 'Każdy projekt wyceniamy przejrzyście przed startem prac (pakiety bazowe w **TwojaStronaWWW.pl**):\n- **Wizytówka / Landing Page**: **2 499 PLN netto** (czysty kod RWD, SEO, formularz z ochroną anty-spam)\n- **Strona Firmowa**: **5 499 PLN netto** (do 10 podstron, autorski CMS Flat-File bez SQL, PageSpeed 90+)\n- **Wdrożenie Czatbota AI (RAG)**: **od 900 PLN netto**\nNapisz przez formularz kontaktowy na dole strony – przygotujemy **bezpłatną wycenę w 24h**!';
   }
 
-  if (q.includes('współprac') || q.includes('wspolprac') || q.includes('krok') || q.includes('proces') || q.includes('jak wygląda')) {
-    return 'Współpraca przebiega w **3 prostych krokach**:\n- **Krok 1**: Bezpłatna konsultacja i określenie celów biznesowych\n- **Krok 2**: Projekt oraz podgląd na żywo przez szyfrowany link testowy\n- **Krok 3**: Testy jakościowe, wdrożenie na domenie i stały monitoring 24/7';
+  if (q.includes('realizacj') || q.includes('portfolio') || q.includes('przykład') || q.includes('projekt')) {
+    return 'Przykładowe wdrożenia z wynikami **Google PageSpeed 98–100/100**:\n- **Raricart.pl** (branża eventowa) – ładowanie skrócone z 4.2s do **0.6s** i automatyzacja rezerwacji\n- **KatoSalsaHub.pl** & **DancePuls** – portal społecznościowy z Salsopedią i automatycznym agregatorem wydarzeń\n- **FuegoLingua.pl** – ultra-lekka strona (45 KB) bez bazy SQL z wirtualnym doradcą AI.';
   }
 
-  if (q.includes('kontakt') || q.includes('telefon') || q.includes('mail') || q.includes('wiadomo')) {
-    return 'Najwygodniej skontaktować się z nami bezpośrednio przez **formularz kontaktowy na dole strony** – odpowiadamy zazwyczaj w ciągu kilku godzin!';
+  if (q.includes('kontakt') || q.includes('telefon') || q.includes('mail') || q.includes('oddzwon') || q.includes('wiadomo')) {
+    return 'Najwygodniej skontaktować się bezpośrednio przez **formularz kontaktowy na dole strony** lub napisać na kontakt@twojastronawww.pl – odpowiadamy i przygotowujemy bezpłatną wycenę w ciągu **24h**!';
   }
 
   return `Jestem wirtualnym doradcą serwisu **${siteId}**. Chętnie odpowiem na pytania o ofertę, wycenę, wdrożenie asystenta AI lub przebieg współpracy. Możesz też zostawić wiadomość w formularzu kontaktowym na dole strony!`;
@@ -122,8 +460,9 @@ export function getLocalFallbackAnswer(question, siteId = 'twojastronawww') {
  * Inicjalizuje widget czatu AI w drzewie DOM
  * @param {Document} doc
  * @param {Window} win
+ * @param {Object} options
  */
-export function initAiWidget(doc = document, win = globalThis.window) {
+export function initAiWidget(doc = document, win = globalThis.window, options = {}) {
   if (!doc || !doc.body) return null;
   if (doc.getElementById('tsw-ai-widget-root')) return null;
 
@@ -133,16 +472,130 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     doc.querySelector('script[src*="ai-widget.js"]') ||
     doc.querySelector('script[src*="widget.js"]');
 
-  const siteId = (scriptEl?.getAttribute('data-site-id') || 'twojastronawww').toLowerCase();
+  const siteId = (
+    options.siteId ||
+    scriptEl?.getAttribute('data-site-id') ||
+    'twojastronawww'
+  ).toLowerCase();
+
   const isLocalhost =
     win?.location?.hostname === 'localhost' || win?.location?.hostname === '127.0.0.1';
   const defaultRouterUrl = isLocalhost
     ? 'http://localhost:8085/chat-router.php'
     : 'https://ai.twojastronawww.pl/chat-router.php';
-  const routerUrl = scriptEl?.getAttribute('data-router-url') || defaultRouterUrl;
-  const title = scriptEl?.getAttribute('data-title') || 'Asystent AI';
+  const routerUrl =
+    options.routerUrl || scriptEl?.getAttribute('data-router-url') || defaultRouterUrl;
+  const title =
+    options.title || scriptEl?.getAttribute('data-title') || 'Asystent AI';
+  const kbUrl =
+    options.kbUrl ||
+    scriptEl?.getAttribute('data-kb-url') ||
+    (siteId === 'katosalsahub' ? 'assets/data/salsopedia.json' : '');
+  const kbApiUrl =
+    options.kbApiUrl ||
+    scriptEl?.getAttribute('data-kb-api') ||
+    (siteId === 'katosalsahub' ? 'assets/php/wiki.php?action=list' : '');
+
   const storageKey = 'tsw_ai_history_' + siteId;
+  const cacheStorageKey = 'tsw_ai_cache_' + siteId;
+  const cacheTtlMs = Number(options.cacheTtlMs) || 24 * 60 * 60 * 1000;
   const quickPrompts = QUICK_PROMPTS_MAP[siteId] || QUICK_PROMPTS_MAP.twojastronawww;
+
+  // Stan dynamicznej bazy wiedzy (np. Salsopedii) i wersji wiedzy
+  const existingGlobalTerms = Array.isArray(win?.__SALSOPEDIA_TERMS__) && win.__SALSOPEDIA_TERMS__.length > 0
+    ? win.__SALSOPEDIA_TERMS__
+    : (Array.isArray(win?.AppState?.terms) && win.AppState.terms.length > 0 ? win.AppState.terms : []);
+  let knowledgeEntries = Array.isArray(options.initialKnowledge)
+    ? [...options.initialKnowledge]
+    : [...existingGlobalTerms];
+  let kbVersion = computeKnowledgeVersion(knowledgeEntries);
+
+  // Pamięć podręczna odpowiedzi (Response Cache): zapobiega ponownemu odpytywaniu AI przy tym samym pytaniu,
+  // oraz automatycznie inwaliduje wpisy, gdy zmieni się kbVersion (np. po aktualizacji Salsopedii).
+  let responseCache = { kbVersion, entries: {} };
+
+  function loadResponseCache() {
+    try {
+      const storage = win?.localStorage || win?.sessionStorage;
+      const raw = storage?.getItem(cacheStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && parsed.entries) {
+          // Jeśli znamy już aktualną niepustą wersję wiedzy i różni się od zapisanej w cache -> inwalidacja!
+          if (knowledgeEntries.length > 0 && parsed.kbVersion !== kbVersion) {
+            responseCache = { kbVersion, entries: {} };
+            saveResponseCache();
+          } else {
+            responseCache = {
+              kbVersion: parsed.kbVersion || kbVersion,
+              entries: parsed.entries || {}
+            };
+          }
+        }
+      }
+    } catch (_) {
+      responseCache = { kbVersion, entries: {} };
+    }
+  }
+
+  function saveResponseCache() {
+    try {
+      const storage = win?.localStorage || win?.sessionStorage;
+      storage?.setItem(cacheStorageKey, JSON.stringify(responseCache));
+    } catch (_) {}
+  }
+
+  function hasContactPii(text) {
+    const s = String(text || '');
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    const phoneRegex = /(?:\+?48[\s-]?)?(?:\d[\s-]?){8}\d/;
+    return emailRegex.test(s) || phoneRegex.test(s);
+  }
+
+  function getCachedAnswer(question) {
+    const normQ = normalizeCacheQuery(question);
+    if (!normQ || hasContactPii(question)) return null;
+
+    if (knowledgeEntries.length > 0 && responseCache.kbVersion !== kbVersion) {
+      responseCache = { kbVersion, entries: {} };
+      saveResponseCache();
+      return null;
+    }
+
+    const item = responseCache.entries?.[normQ];
+    if (!item || !item.answer) return null;
+
+    const now = Date.now();
+    if (item.ts && now - item.ts > cacheTtlMs) {
+      delete responseCache.entries[normQ];
+      saveResponseCache();
+      return null;
+    }
+
+    if (knowledgeEntries.length > 0 && item.kbVersion && item.kbVersion !== kbVersion) {
+      delete responseCache.entries[normQ];
+      saveResponseCache();
+      return null;
+    }
+
+    return item.answer;
+  }
+
+  function setCachedAnswer(question, answer, source = 'ai') {
+    const normQ = normalizeCacheQuery(question);
+    if (!normQ || !answer || hasContactPii(question)) return;
+    if (!responseCache.entries || responseCache.kbVersion !== kbVersion) {
+      responseCache = { kbVersion, entries: {} };
+    }
+    responseCache.kbVersion = kbVersion;
+    responseCache.entries[normQ] = {
+      answer: String(answer),
+      kbVersion,
+      source,
+      ts: Date.now()
+    };
+    saveResponseCache();
+  }
 
   const style = doc.createElement('style');
   style.id = 'tsw-ai-widget-styles';
@@ -154,7 +607,7 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       width: 60px;
       height: 60px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+      background: linear-gradient(135deg, var(--red, #2563eb) 0%, var(--orange, #7c3aed) 100%);
       color: #ffffff;
       box-shadow: 0 8px 24px rgba(37, 99, 235, 0.4);
       border: 2px solid rgba(255, 255, 255, 0.35);
@@ -169,7 +622,7 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     .tsw-ai-btn:focus-visible {
       transform: scale(1.08);
       box-shadow: 0 12px 30px rgba(124, 58, 237, 0.55);
-      outline: 3px solid #60a5fa;
+      outline: 3px solid var(--yellow, #60a5fa);
       outline-offset: 2px;
     }
     .tsw-ai-btn svg {
@@ -181,19 +634,19 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       position: fixed;
       bottom: 96px;
       right: 24px;
-      width: 390px;
+      width: 395px;
       max-width: calc(100vw - 32px);
       height: 550px;
       max-height: calc(100vh - 120px);
-      background: #0f172a;
-      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: var(--bg, #0f172a);
+      border: 1px solid rgba(251, 191, 36, 0.28);
       border-radius: 18px;
-      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 22px 48px rgba(0, 0, 0, 0.72);
       z-index: 999999;
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       transition: opacity 0.25s, transform 0.25s, visibility 0.25s;
       opacity: 0;
       transform: translateY(16px) scale(0.96);
@@ -205,6 +658,23 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       transform: translateY(0) scale(1);
       visibility: visible;
       pointer-events: auto;
+    }
+    @media (max-width: 600px) {
+      .tsw-ai-btn {
+        bottom: 16px;
+        right: 16px;
+        width: 54px;
+        height: 54px;
+      }
+      .tsw-ai-window {
+        bottom: 80px;
+        right: 12px;
+        left: 12px;
+        width: auto;
+        max-width: none;
+        height: min(500px, calc(100vh - 100px));
+        max-height: calc(100dvh - 100px);
+      }
     }
     .tsw-ai-header {
       background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
@@ -247,7 +717,7 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     }
     .tsw-ai-icon-btn:hover,
     .tsw-ai-icon-btn:focus-visible {
-      color: #60a5fa;
+      color: var(--yellow, #60a5fa);
       background: rgba(255, 255, 255, 0.1);
     }
     .tsw-ai-messages {
@@ -267,7 +737,7 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       word-wrap: break-word;
     }
     .tsw-ai-msg strong {
-      color: #93c5fd;
+      color: var(--yellow, #93c5fd);
       font-weight: 700;
     }
     .tsw-ai-list {
@@ -279,22 +749,26 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       margin-bottom: 4px;
     }
     .tsw-ai-link {
-      color: #93c5fd;
+      color: var(--yellow, #93c5fd);
       text-decoration: underline;
       word-break: break-all;
     }
     .tsw-ai-msg-bot {
-      background: #1e293b;
+      background: var(--card, #1e293b);
       color: #f8fafc;
       align-self: flex-start;
       border-bottom-left-radius: 4px;
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .tsw-ai-msg-user {
-      background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-      color: #ffffff;
+      background: linear-gradient(135deg, var(--red, #2563eb) 0%, var(--orange, #7c3aed) 100%);
+      color: #0f172a;
+      font-weight: 600;
       align-self: flex-end;
       border-bottom-right-radius: 4px;
+    }
+    .tsw-ai-msg-user strong {
+      color: #0f172a;
     }
     .tsw-ai-chips {
       display: flex;
@@ -302,10 +776,13 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       gap: 6px;
       padding: 0 16px 10px;
     }
+    .tsw-ai-chips.tsw-hidden {
+      display: none !important;
+    }
     .tsw-ai-chip {
-      background: rgba(37, 99, 235, 0.18);
-      border: 1px solid rgba(96, 165, 250, 0.45);
-      color: #dbeafe;
+      background: rgba(251, 191, 36, 0.14);
+      border: 1px solid rgba(251, 191, 36, 0.4);
+      color: #fef3c7;
       border-radius: 999px;
       padding: 6px 12px;
       font-size: 12px;
@@ -315,8 +792,8 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     }
     .tsw-ai-chip:hover,
     .tsw-ai-chip:focus-visible {
-      background: rgba(37, 99, 235, 0.35);
-      border-color: #93c5fd;
+      background: rgba(251, 191, 36, 0.28);
+      border-color: var(--yellow, #fbbf24);
       color: #ffffff;
       transform: translateY(-1px);
     }
@@ -341,14 +818,14 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       color: #94a3b8;
     }
     .tsw-ai-input:focus {
-      border-color: #60a5fa;
+      border-color: var(--yellow, #60a5fa);
     }
     .tsw-ai-send {
-      background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-      border: 1px solid rgba(147, 197, 253, 0.4);
+      background: linear-gradient(135deg, var(--red, #2563eb) 0%, var(--orange, #7c3aed) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.3);
       border-radius: 10px;
       padding: 0 16px;
-      color: #ffffff;
+      color: #0f172a;
       font-weight: 700;
       cursor: pointer;
       transition: opacity 0.2s, transform 0.15s;
@@ -367,6 +844,11 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     }
   `;
   (doc.head || doc.documentElement || doc.body).appendChild(style);
+
+  const placeholderText =
+    siteId === 'katosalsahub'
+      ? 'Zapytaj o hasło z Salsopedii, style, radio lub eventy...'
+      : 'Napisz pytanie o ofertę lub wycenę...';
 
   const root = doc.createElement('div');
   root.id = 'tsw-ai-widget-root';
@@ -391,7 +873,7 @@ export function initAiWidget(doc = document, win = globalThis.window) {
       <div class="tsw-ai-chips" id="tswAiChips"></div>
 
       <form class="tsw-ai-input-bar" id="tswAiForm">
-        <input type="text" class="tsw-ai-input" id="tswAiInput" placeholder="Napisz pytanie o ofertę lub wycenę..." aria-label="Zadaj pytanie asystentowi" required autocomplete="off" />
+        <input type="text" class="tsw-ai-input" id="tswAiInput" placeholder="${placeholderText}" aria-label="Zadaj pytanie asystentowi" required autocomplete="off" />
         <button type="submit" class="tsw-ai-send" id="tswAiSendBtn">Wyślij</button>
       </form>
     </div>
@@ -417,10 +899,84 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     }
   } catch (_) {}
 
+  loadResponseCache();
+
   function saveHistory() {
     try {
       win?.sessionStorage?.setItem(storageKey, JSON.stringify(conversationHistory.slice(-8)));
     } catch (_) {}
+  }
+
+  /**
+   * Aktualizuje bazę wiedzy (np. po edycji Salsopedii) i automatycznie inwaliduje cache
+   * oraz aktualizuje zapisane w historii odpowiedzi powiązane ze zmienionymi hasłami.
+   * @param {Array<Object>} newEntries
+   */
+  function updateKnowledgeEntries(newEntries) {
+    if (!Array.isArray(newEntries)) return kbVersion;
+    const prevVersion = kbVersion;
+    knowledgeEntries = [...newEntries];
+    kbVersion = computeKnowledgeVersion(knowledgeEntries);
+
+    if (prevVersion !== kbVersion) {
+      // Inwalidacja zapisanego cache zapytań (gwarancja świeżej wiedzy po zmianie w Salsopedii)
+      responseCache = { kbVersion, entries: {} };
+      saveResponseCache();
+
+      // Jeśli w zapisanej historii sesji znajdują się wcześniejsze pytania o hasła z Salsopedii,
+      // aktualizujemy ich zapisane odpowiedzi na podstawie nowej wersji Salsopedii
+      let historyUpdated = false;
+      for (let i = 0; i < conversationHistory.length - 1; i++) {
+        if (conversationHistory[i].role === 'user' && conversationHistory[i + 1]?.role === 'model') {
+          const userQ = conversationHistory[i].text;
+          const matched = searchKnowledgeEntries(userQ, knowledgeEntries, 1);
+          if (matched.length > 0) {
+            const refreshedAnswer = getLocalFallbackAnswer(userQ, siteId, knowledgeEntries);
+            if (conversationHistory[i + 1].text !== refreshedAnswer) {
+              conversationHistory[i + 1].text = refreshedAnswer;
+              setCachedAnswer(userQ, refreshedAnswer, 'kb_live_sync');
+              historyUpdated = true;
+            }
+          }
+        }
+      }
+      if (historyUpdated) {
+        saveHistory();
+        renderInitialView();
+      }
+    }
+    return kbVersion;
+  }
+
+  /**
+   * Pobiera najświeższą bazę wiedzy ze strony (API Salsopedii lub plik JSON)
+   */
+  async function refreshKnowledge() {
+    const fetchFn = win?.fetch || globalThis.fetch;
+    if (typeof fetchFn !== 'function') return kbVersion;
+
+    // Jeżeli na stronie działa już załadowany stan Salsopedii (wiki.js __SALSOPEDIA_TERMS__ / AppState.terms), zsynchronizuj go
+    const liveTerms = win?.__SALSOPEDIA_TERMS__ || win?.AppState?.terms;
+    if (Array.isArray(liveTerms) && liveTerms.length > 0) {
+      updateKnowledgeEntries(liveTerms);
+    }
+
+    const urlsToTry = [kbApiUrl, kbUrl].filter(Boolean);
+    for (const url of urlsToTry) {
+      try {
+        const res = await fetchFn(url, { cache: 'no-store' });
+        if (res && res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            updateKnowledgeEntries(data);
+            break;
+          }
+        }
+      } catch (_) {
+        // Cichy fallback do kolejnego źródła lub stanu lokalnego
+      }
+    }
+    return kbVersion;
   }
 
   function appendMessageElement(role, text) {
@@ -437,14 +993,20 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     return msg;
   }
 
+  function setChipsVisible(visible) {
+    if (!chipsContainer) return;
+    chipsContainer.classList.toggle('tsw-hidden', !visible);
+    chipsContainer.style.display = visible ? 'flex' : 'none';
+  }
+
   function renderChips() {
     if (!chipsContainer) return;
     chipsContainer.innerHTML = '';
     if (conversationHistory.length > 0) {
-      chipsContainer.style.display = 'none';
+      setChipsVisible(false);
       return;
     }
-    chipsContainer.style.display = 'flex';
+    setChipsVisible(true);
     quickPrompts.forEach((promptText) => {
       const chip = doc.createElement('button');
       chip.type = 'button';
@@ -460,10 +1022,12 @@ export function initAiWidget(doc = document, win = globalThis.window) {
   function renderInitialView() {
     if (!messagesContainer) return;
     messagesContainer.innerHTML = '';
-    appendMessageElement(
-      'model',
-      `Cześć! 👋 Jestem wirtualnym doradcą **${title}**. W czym mogę Ci pomóc? Zapytaj o ofertę, wycenę lub współpracę!`
-    );
+    const welcomeText =
+      siteId === 'katosalsahub'
+        ? `Cześć! 💃🕺 Jestem wirtualnym asystentem **${title}**. Moim głównym centrum wiedzy jest **Salsopedia**, ale odpowiem też na wszystkie pytania o nasze potańcówki w Katowicach, style tańca, **Radio Timba Nation** i **DancePuls**. O co chcesz zapytać?`
+        : `Cześć! 👋 Jestem wirtualnym doradcą **${title}**. W czym mogę Ci pomóc? Zapytaj o ofertę, wycenę lub współpracę!`;
+
+    appendMessageElement('model', welcomeText);
     for (let i = 0; i < conversationHistory.length; i++) {
       appendMessageElement(conversationHistory[i].role, conversationHistory[i].text);
     }
@@ -476,6 +1040,9 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     toggleBtn.setAttribute('aria-expanded', String(isOpen));
     if (isOpen) {
       chatInput?.focus?.();
+      if (kbUrl || kbApiUrl) {
+        refreshKnowledge();
+      }
     }
   }
 
@@ -500,13 +1067,49 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     }
   });
 
+  // Nasłuchiwanie na żywo na zmiany w Salsopedii / bazie wiedzy na stronie (w tej samej karcie oraz między kartami)
+  const handleKnowledgeEvent = (e) => {
+    const terms = e?.detail?.terms || win?.__SALSOPEDIA_TERMS__ || win?.AppState?.terms;
+    if (Array.isArray(terms)) {
+      updateKnowledgeEntries(terms);
+    } else {
+      refreshKnowledge();
+    }
+  };
+  win?.addEventListener?.('salsopedia:updated', handleKnowledgeEvent);
+  doc.addEventListener?.('salsopedia:updated', handleKnowledgeEvent);
+  win?.addEventListener?.('storage', (e) => {
+    if (!e || e.key === 'ksh_salsopedia_sync') {
+      refreshKnowledge();
+    }
+  });
+
   async function sendQuestion(text) {
     const trimmed = String(text || '').trim();
     if (!trimmed || sendBtn?.disabled) return;
 
-    if (chipsContainer) chipsContainer.style.display = 'none';
+    // Synchronizuj stan wiedzy z globalnym __SALSOPEDIA_TERMS__ / AppState.terms (jeśli użytkownik/moderator właśnie edytował Salsopedię)
+    const liveGlobalTerms = win?.__SALSOPEDIA_TERMS__ || win?.AppState?.terms;
+    if (Array.isArray(liveGlobalTerms) && liveGlobalTerms.length > 0) {
+      updateKnowledgeEntries(liveGlobalTerms);
+    }
+
+    setChipsVisible(false);
     appendMessageElement('user', trimmed);
     if (chatInput) chatInput.value = '';
+
+    // 1. Sprawdź Response Cache: jeśli klient pyta po raz drugi o to samo, a baza wiedzy (Salsopedia)
+    //    nie zmieniła się od ostatniego razu -> zwróć odpowiedź natychmiast BEZ odpytywania AI!
+    const cachedAnswer = getCachedAnswer(trimmed);
+    if (cachedAnswer) {
+      appendMessageElement('model', cachedAnswer);
+      conversationHistory.push({ role: 'user', text: trimmed });
+      conversationHistory.push({ role: 'model', text: cachedAnswer });
+      conversationHistory = conversationHistory.slice(-8);
+      saveHistory();
+      if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      return { answer: cachedAnswer, cached: true, kbVersion };
+    }
 
     const typingMsg = doc.createElement('div');
     typingMsg.className = 'tsw-ai-msg tsw-ai-msg-bot tsw-ai-typing';
@@ -519,6 +1122,8 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), 9000) : null;
 
+    const dynamicContext = buildDynamicContext(trimmed, knowledgeEntries);
+
     try {
       const fetchFn = win?.fetch || globalThis.fetch;
       const res = await fetchFn(routerUrl, {
@@ -528,6 +1133,8 @@ export function initAiWidget(doc = document, win = globalThis.window) {
         body: JSON.stringify({
           site_id: siteId,
           question: trimmed,
+          kb_version: kbVersion,
+          dynamic_context: dynamicContext,
           history: conversationHistory.slice(-8)
         })
       });
@@ -537,24 +1144,32 @@ export function initAiWidget(doc = document, win = globalThis.window) {
 
       if (res.ok && data && data.success && data.answer) {
         appendMessageElement('model', data.answer);
+        setCachedAnswer(trimmed, data.answer, 'ai');
         conversationHistory.push({ role: 'user', text: trimmed });
         conversationHistory.push({ role: 'model', text: data.answer });
+        conversationHistory = conversationHistory.slice(-8);
+        saveHistory();
+        return { answer: data.answer, cached: Boolean(data.cached), kbVersion };
       } else {
-        const fallback = getLocalFallbackAnswer(trimmed, siteId);
+        const fallback = getLocalFallbackAnswer(trimmed, siteId, knowledgeEntries);
         appendMessageElement('model', fallback);
+        setCachedAnswer(trimmed, fallback, 'fallback');
         conversationHistory.push({ role: 'user', text: trimmed });
         conversationHistory.push({ role: 'model', text: fallback });
+        conversationHistory = conversationHistory.slice(-8);
+        saveHistory();
+        return { answer: fallback, cached: false, kbVersion };
       }
-      conversationHistory = conversationHistory.slice(-8);
-      saveHistory();
     } catch (_) {
       typingMsg.remove?.();
-      const fallback = getLocalFallbackAnswer(trimmed, siteId);
+      const fallback = getLocalFallbackAnswer(trimmed, siteId, knowledgeEntries);
       appendMessageElement('model', fallback);
+      setCachedAnswer(trimmed, fallback, 'fallback');
       conversationHistory.push({ role: 'user', text: trimmed });
       conversationHistory.push({ role: 'model', text: fallback });
       conversationHistory = conversationHistory.slice(-8);
       saveHistory();
+      return { answer: fallback, cached: false, kbVersion };
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       if (sendBtn) sendBtn.disabled = false;
@@ -568,6 +1183,11 @@ export function initAiWidget(doc = document, win = globalThis.window) {
   });
 
   renderInitialView();
+
+  // Automatyczne załadowanie dynamicznej bazy wiedzy w tle (jeśli skonfigurowano kbUrl/kbApiUrl i nie podano initialKnowledge)
+  if ((kbUrl || kbApiUrl) && knowledgeEntries.length === 0 && !options.skipInitialFetch) {
+    refreshKnowledge();
+  }
 
   return {
     root,
@@ -583,7 +1203,16 @@ export function initAiWidget(doc = document, win = globalThis.window) {
     toggleChat,
     closeChat,
     sendQuestion,
-    getHistory: () => conversationHistory
+    getHistory: () => conversationHistory,
+    getKnowledgeVersion: () => kbVersion,
+    getKnowledgeEntries: () => knowledgeEntries,
+    updateKnowledgeEntries,
+    refreshKnowledge,
+    getCachedAnswer,
+    clearCache: () => {
+      responseCache = { kbVersion, entries: {} };
+      saveResponseCache();
+    }
   };
 }
 

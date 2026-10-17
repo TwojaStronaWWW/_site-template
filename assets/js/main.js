@@ -1,32 +1,107 @@
 /**
- * Główny moduł skryptów witryny (Vanilla JS)
+ * Główny moduł skryptów witryny (Vanilla JS ES6+) — TwojaStronaWWW Enterprise Site Template
  */
 
 export function initNavigation(doc = document) {
-  const menuBtn = doc.getElementById('menu-toggle');
-  const navLinks = doc.getElementById('primary-nav');
+  const menuBtn = doc.getElementById('menu-toggle') || doc.querySelector('.hamburger');
+  const navLinks = doc.getElementById('primary-nav') || doc.querySelector('.nav-links');
 
   if (!menuBtn || !navLinks) return null;
+
+  if (!menuBtn.hasAttribute('aria-expanded')) {
+    menuBtn.setAttribute('aria-expanded', 'false');
+  }
 
   const toggleHandler = () => {
     const isExpanded = menuBtn.getAttribute('aria-expanded') === 'true';
     const nextState = !isExpanded;
     menuBtn.setAttribute('aria-expanded', String(nextState));
     navLinks.classList.toggle('is-open', nextState);
+    navLinks.classList.toggle('active', nextState);
+  };
+
+  const closeMenu = () => {
+    menuBtn.setAttribute('aria-expanded', 'false');
+    navLinks.classList.remove('is-open');
+    navLinks.classList.remove('active');
+    menuBtn.focus?.();
   };
 
   const keyHandler = (e) => {
     if (e.key === 'Escape' && menuBtn.getAttribute('aria-expanded') === 'true') {
-      menuBtn.setAttribute('aria-expanded', 'false');
-      navLinks.classList.remove('is-open');
-      menuBtn.focus?.();
+      closeMenu();
     }
   };
 
   menuBtn.addEventListener('click', toggleHandler);
   doc.addEventListener('keydown', keyHandler);
 
-  return { menuBtn, navLinks, toggleHandler, keyHandler };
+  return { menuBtn, navLinks, toggleHandler, keyHandler, closeMenu };
+}
+
+/**
+ * Płynne przewijanie do sekcji kotwicowych (#id) z automatycznym zamykaniem menu mobilnego
+ */
+export function initSmoothScroll(doc = document) {
+  const anchors = doc.querySelectorAll('a[href^="#"]');
+  if (!anchors || !anchors.length) return null;
+
+  const navLinks = doc.getElementById('primary-nav') || doc.querySelector('.nav-links');
+  const menuBtn = doc.getElementById('menu-toggle') || doc.querySelector('.hamburger');
+
+  anchors.forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+      const targetId = this.getAttribute('href');
+      if (targetId === '#' || targetId === '') return;
+
+      if (navLinks && (navLinks.classList.contains('is-open') || navLinks.classList.contains('active'))) {
+        navLinks.classList.remove('is-open');
+        navLinks.classList.remove('active');
+        if (menuBtn) menuBtn.setAttribute('aria-expanded', 'false');
+      }
+
+      const targetElement = doc.querySelector(targetId);
+      if (targetElement && typeof targetElement.scrollIntoView === 'function') {
+        if (typeof e?.preventDefault === 'function') e.preventDefault();
+        targetElement.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  });
+
+  return anchors;
+}
+
+/**
+ * Wstrzymywanie i wznawianie animacji poza ekranem (IntersectionObserver + fallback scroll)
+ * Optymalizuje zużycie GPU/CPU na urządzeniach mobilnych.
+ */
+export function initScrollAnimations(doc = document) {
+  const target = doc.querySelector('[data-animate-on-scroll], .orbit-ring');
+  if (!target) return null;
+
+  const container = doc.querySelector('.orbit-container') || target.parentNode || target;
+
+  if (typeof globalThis.IntersectionObserver === 'function') {
+    const observer = new globalThis.IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          container.classList?.toggle('is-visible', Boolean(entry.isIntersecting));
+        }
+      },
+      { rootMargin: '100px 0px', threshold: 0.05 }
+    );
+    observer.observe(container);
+    return { target, container, observer };
+  }
+
+  const handleScrollVisibility = () => {
+    const scrollY = globalThis.window?.scrollY || 0;
+    const isVisible = scrollY > 150 && scrollY < 1800;
+    container.classList?.toggle('is-visible', isVisible);
+  };
+
+  globalThis.window?.addEventListener('scroll', handleScrollVisibility, { passive: true });
+  return { target, container, handleScrollVisibility };
 }
 
 /**
@@ -34,8 +109,8 @@ export function initNavigation(doc = document) {
  * Obsługuje klawiaturę (ArrowRight/Left/Up/Down, Home, End), stany aria-selected i tabindex.
  */
 export function initTabs(doc = document) {
-  const tabs = Array.from(doc.querySelectorAll('[role="tab"], .tab-btn'));
-  const contents = Array.from(doc.querySelectorAll('[role="tabpanel"], .tab-panel'));
+  const tabs = Array.from(doc.querySelectorAll('[role="tab"], .tab-btn, .pricing-tab'));
+  const contents = Array.from(doc.querySelectorAll('[role="tabpanel"], .tab-panel, .pricing-content'));
 
   if (!tabs.length || !contents.length) return null;
 
@@ -91,13 +166,12 @@ export function initTabs(doc = document) {
   return { tabs, contents, activateTab };
 }
 
-
 /**
  * Komponent Lightbox do powiększania zdjęć i galerii (WAI-ARIA Dialog)
  */
 export function initLightbox(doc = document) {
   const modal = doc.getElementById('image-lightbox');
-  const items = Array.from(doc.querySelectorAll('[data-lightbox], .gallery-item'));
+  const items = Array.from(doc.querySelectorAll('[data-lightbox], .gallery-item, .pricing-gallery-item'));
 
   if (!modal || !items.length) return null;
 
@@ -287,8 +361,10 @@ export function initContactForm(doc = document, storage = typeof localStorage !=
 if (typeof document !== 'undefined') {
   const runInit = () => {
     initNavigation(document);
+    initSmoothScroll(document);
     initTabs(document);
     initLightbox(document);
+    initScrollAnimations(document);
     initContactForm(document);
   };
 

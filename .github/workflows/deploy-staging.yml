@@ -48,6 +48,9 @@ jobs:
             !.*
             !.git*
             !tests*
+            !scripts*
+            !docker-compose.yml
+            !eslint.config.mjs
             !package*.json
             !*.md
           target: '/home/platne/serwer417204/public_html/${{ vars.STAGING_PATH }}/'

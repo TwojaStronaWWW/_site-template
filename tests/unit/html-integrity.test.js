@@ -12,16 +12,26 @@ describe('Integralność semantyczna i standardy HTML5 (index.html)', () => {
     assert.ok(content.length > 50, 'index.html powinien zawierać szkielet dokumentu');
   });
 
-  test('Posiada poprawny DOCTYPE HTML5 i zdefiniowany atrybut lang', () => {
+  test('Posiada poprawny DOCTYPE HTML5, zdefiniowany atrybut lang oraz link dostępności .skip-link', () => {
     assert.match(content, /<!DOCTYPE html>/i, 'Brak standardowego <!DOCTYPE html>');
     assert.match(content, /<html\s+[^>]*lang=["'][a-z]{2}["']/i, 'Tag <html> musi posiadać atrybut lang');
+    assert.match(content, /class=["']skip-link["']/i, 'Brak linku dostępności .skip-link');
   });
 
-  test('Sekcja <head> zawiera kodowanie utf-8, meta viewport, manifest PWA oraz theme-color', () => {
+  test('Sekcja <head> zawiera kodowanie utf-8, meta viewport, robots, canonical, manifest PWA, theme-color i Schema.org JSON-LD', () => {
     assert.match(content, /<meta\s+charset=["']?utf-8/i, 'Brak deklaracji kodowania UTF-8');
     assert.match(content, /<meta\s+name=["']viewport["']/i, 'Brak znacznika meta viewport dla responsywności');
+    assert.match(content, /<meta\s+name=["']robots["']/i, 'Brak deklaracji meta robots');
+    assert.match(content, /<link\s+rel=["']canonical["']/i, 'Brak linku canonical');
     assert.match(content, /<link\s+rel=["']manifest["']\s+href=["']site\.webmanifest["']/i, 'Brak podpięcia manifestu PWA site.webmanifest');
     assert.match(content, /<meta\s+name=["']theme-color["']/i, 'Brak deklaracji meta theme-color');
+    assert.match(content, /<script\s+type=["']application\/ld\+json["']/i, 'Brak danych strukturalnych Schema.org JSON-LD');
+  });
+
+  test('Zasada Separation of Concerns (SoC): brak stylów inline style="..." oraz onclick="..." w index.html', () => {
+    assert.doesNotMatch(content, /\sstyle=["'][^"']*["']/i, 'Wykryto niedozwolony atrybut inline style="..."');
+    assert.doesNotMatch(content, /\sonclick=["'][^"']*["']/i, 'Wykryto niedozwolony atrybut inline onclick="..."');
+    assert.doesNotMatch(content, /<style[\s>]/i, 'Wykryto niedozwolony blok <style> w index.html');
   });
 
   test('Strona posiada niepusty tag <title> oraz opis <meta name="description">', () => {
@@ -83,5 +93,10 @@ describe('Integralność semantyczna i standardy HTML5 (index.html)', () => {
     }
 
     assert.ok(checkedAssets >= 3, `Oczekiwano sprawdzenia co najmniej 3 lokalnych zasobów, sprawdzono: ${checkedAssets}`);
+  });
+
+  test('Strona ładuje moduły główny (main.js) oraz widget Asystenta AI (ai-widget.js)', () => {
+    assert.match(content, /<script\s+[^>]*src=["']assets\/js\/main\.js["']/i, 'Brak podpięcia assets/js/main.js w index.html');
+    assert.match(content, /<script\s+[^>]*src=["']assets\/js\/ai-widget\.js["']/i, 'Brak podpięcia assets/js/ai-widget.js w index.html');
   });
 });

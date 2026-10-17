@@ -3,9 +3,9 @@ set -e
 
 echo "🔍 [pre-commit] Uruchamianie lokalnej bramy jakościowej (Quality Gate)..."
 
-# 1. Blokada przypadkowego commitowania sekretów (.env, config/secrets.php, .htpasswd)
-if git diff --cached --name-only | grep -E "(\.env|config/secrets\.php|\.htpasswd)$"; then
-  echo "❌ BŁĄD: Wykryto plik z wrażliwymi sekretami w paczce do zatwierdzenia!"
+# 1. Blokada przypadkowego commitowania sekretów (.env, config/secrets.php, .htpasswd, dane CSV)
+if git diff --cached --name-only | grep -E "(\.env|config/secrets\.php|\.htpasswd|leads_.*\.csv)$"; then
+  echo "❌ BŁĄD: Wykryto plik z wrażliwymi danymi/sekretami w paczce do zatwierdzenia!"
   echo "Usuń plik z indeksu poleceniem: git reset HEAD <plik>"
   exit 1
 fi

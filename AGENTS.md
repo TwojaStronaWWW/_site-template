@@ -21,45 +21,64 @@ Projekty TwojaStronaWWW opierają się na maksymalnym wykorzystaniu natywnych We
 _site-template/
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml                 # 2-etapowy potok CI (Testy jednostkowe -> Audyt Lighthouse CI)
-│   │   ├── deploy-staging.yml     # Automatyczne wdrożenie SFTP na środowisko Staging
-│   │   └── deploy-production.yml  # Bezpieczne wdrożenie SFTP na serwer Produkcyjny (z tagowaniem)
-│   ├── ISSUE_TEMPLATE/            # Ustandaryzowane szablony zgłoszeń błędów i zadań
-│   ├── pull_request_template.md   # Checklista jakościowa Quality Gate dla PR
-│   └── dependabot.yml             # Automatyczny nadzór nad wersjami GitHub Actions i npm
+│   │   ├── ci.yml                      # 3-etapowy potok CI (Quality Gate + Smoke Test + Lighthouse CI)
+│   │   ├── dependabot-automerge.yml    # Automatyczne scalanie aktualizacji Dependabota
+│   │   ├── deploy-staging.yml          # Automatyczne wdrożenie SFTP na środowisko Staging
+│   │   └── deploy-production.yml       # Bezpieczne wdrożenie SFTP na serwer Produkcyjny (z tagowaniem)
+│   ├── ISSUE_TEMPLATE/                 # Ustandaryzowane szablony zgłoszeń błędów i zadań
+│   ├── pull_request_template.md        # Checklista jakościowa Quality Gate dla PR
+│   └── dependabot.yml                  # Automatyczny nadzór nad wersjami GitHub Actions i npm
 ├── .githooks/
-│   ├── pre-commit                 # Git hook uruchamiający npm run check przed commitem
-│   └── commit-msg                 # Git hook wymuszający format Conventional Commits
+│   ├── pre-commit                      # Git hook uruchamiający npm run check przed commitem
+│   └── commit-msg                      # Git hook wymuszający format Conventional Commits
+├── api/
+│   ├── .htaccess                       # Blokada bezpośredniego odczytu plików CSV
+│   ├── contact.php                     # Backend formularza (Multi-Honeypot, RODO mask_ip, osTicket + Autoresponder)
+│   ├── leads-store.php                 # Atomowy zapis i odczyt leadów CSV (flock LOCK_EX)
+│   ├── rate-limit.php                  # Plikowy Rate-Limiter IP z Garbage Collectorem
+│   ├── lead_recovery.php               # Endpoint informacyjny o RODO-zgodnym zapisie szkicu w localStorage
+│   ├── R2Client.php                    # Natywny klient obiektowy Cloudflare R2 (AWS SigV4)
+│   ├── rate_limits/                    # Liczniki rate-limitera (.htaccess: Deny from all)
+│   └── sessions/                       # Magazyn sesji PHP (.htaccess: Deny from all)
 ├── assets/
-│   ├── css/main.css               # Design System, CSS tokens, responsywny layout, reset
+│   ├── css/main.css                    # Design System, CSS tokens, responsywny layout, Tabs, Lightbox
 │   ├── js/
-│   │   ├── main.js                # Vanilla ES6 UI: nawigacja mobilna (a11y), zdarzenia
-│   │   └── ai-widget.js           # Uniwersalny widget Asystenta AI (RAG via VPS, Multi-Turn, XSS-safe, Zero-Downtime Fallback)
-│   └── img/                       # Lekkie assety graficzne, ikony SVG i favicon
+│   │   ├── main.js                     # Vanilla ES6 UI: nawigacja (a11y), zakładki, lightbox, formularz
+│   │   └── ai-widget.js                # Uniwersalny widget Asystenta AI (RAG via VPS, Multi-Turn, XSS-safe, Zero-Downtime Fallback)
+│   └── img/                            # Lekkie assety graficzne i ikony SVG
 ├── docs/
-│   ├── AI_KNOWLEDGE_TEMPLATE.md   # Wzorcowy szablon bazy wiedzy RAG (<site_id>-knowledge.txt) dla VPS AI Routera
-│   └── CLOUDFLARE_STANDARDS.md    # Standard konfiguracji Cloudflare CDN / DNS
+│   ├── AI_KNOWLEDGE_TEMPLATE.md        # Wzorcowy szablon bazy wiedzy RAG (<site_id>-knowledge.txt) dla VPS AI Routera
+│   └── CLOUDFLARE_STANDARDS.md         # Standard konfiguracji Cloudflare CDN / DNS / R2
 ├── scripts/
-│   └── serve.js                   # Lekki lokalny serwer developerski HTTP w natywnym Node.js
+│   ├── serve.js                        # Lekki lokalny serwer developerski HTTP w natywnym Node.js
+│   ├── generate-pdf.js                 # Generator PDF przez Headless Chromium
+│   ├── migrate-to-r2.php               # Skrypt CLI do migracji mediów do Cloudflare R2
+│   └── preview-tunnel.ps1 / .sh        # Szyfrowany podgląd przez Cloudflare Quick Tunnel
 ├── tests/
-│   ├── helpers/mock-dom.js        # Lekka, bezbiblioteczna symulacja DOM dla środowiska Node.js
-│   └── unit/                      # Natywne testy jednostkowe (node:test)
-│       ├── ai-widget.test.js      # Testy widgetu AI (ochrona XSS w Markdown, pamięć rozmowy, fallback offline)
-│       ├── css-integrity.test.js  # Testy spójności CSS i zmiennych systemowych
-│       ├── html-integrity.test.js # Testy semantyki HTML5, nagłówków SEO, a11y i linków
-│       ├── main.test.js           # Testy interakcji UI i nawigacji
-│       └── repo-hygiene.test.js   # Testy higieny repozytorium, ISO 27001, hooków i CI/CD
-├── index.html                     # Główny szablon strony wizytówkowej/landing page
-├── robots.txt                     # Konfiguracja indeksowania SEO
-├── sitemap.xml                    # Mapa witryny dla wyszukiwarek
-├── site.webmanifest               # Manifest PWA / przeglądarkowy
-├── package.json                   # Skrypty jakościowe (check, test, test:coverage, check:syntax, serve)
-├── .lighthouserc.json             # Konfiguracja audytu Lighthouse CI (min. 90% a11y, SEO, best-practices)
-├── .gitattributes                 # Wymuszenie normalizacji końców linii LF
-├── .gitignore                     # Rygor ISO 27001: wykluczenie sesji, logów i danych klientów CSV
-├── README.md                      # Dokumentacja projektu ze statusem odznak (Badges)
-├── BLUEPRINT.md                   # Kompletny podręcznik architektury i procedur szablonu
-└── ROADMAP.template.md            # Szablon rejestru sprintów, wydań i historii optymalizacji
+│   ├── helpers/mock-dom.js             # Lekka, bezbiblioteczna symulacja DOM dla środowiska Node.js
+│   ├── smoke/ui-smoke.js               # Przeglądarkowy test dymny UI (Playwright Chromium)
+│   └── unit/                           # Natywne testy jednostkowe (node:test)
+│       ├── ai-widget.test.js           # Testy widgetu AI (ochrona XSS w Markdown, pamięć rozmowy, fallback offline)
+│       ├── css-integrity.test.js       # Testy spójności CSS i zmiennych systemowych
+│       ├── html-integrity.test.js      # Testy semantyki HTML5, nagłówków SEO, a11y i linków
+│       ├── main.test.js                # Testy interakcji UI, nawigacji, zakładek, lightboxa i formularza
+│       └── repo-hygiene.test.js        # Testy higieny repozytorium, ISO 27001, hooków i CI/CD
+├── index.html                          # Główny szablon strony wizytówkowej/landing page
+├── sw.js                               # Service Worker (PWA Offline Support)
+├── robots.txt                          # Konfiguracja indeksowania SEO
+├── sitemap.xml                         # Mapa witryny dla wyszukiwarek
+├── site.webmanifest                    # Manifest PWA / przeglądarkowy
+├── package.json                        # Skrypty jakościowe (check, test, test:coverage, check:syntax, serve)
+├── docker-compose.yml                  # Lokalne środowisko PHP 8.3 + Apache
+├── eslint.config.mjs / .htmlhintrc     # Konfiguracja statycznej analizy JS i HTML
+├── .lighthouserc.json                  # Konfiguracja audytu Lighthouse CI (min. 90% a11y, SEO, best-practices)
+├── .gitleaks.toml / .env.example       # Ochrona sekretów i szablon zmiennych środowiskowych (ISO 27001)
+├── .htaccess                           # Nagłówki bezpieczeństwa OWASP i blokada plików wrażliwych
+├── .gitattributes                      # Wymuszenie normalizacji końców linii LF
+├── .gitignore                          # Rygor ISO 27001: wykluczenie sesji, logów i danych klientów CSV
+├── README.md                           # Dokumentacja projektu ze statusem odznak (Badges)
+├── BLUEPRINT.md                        # Kompletny podręcznik architektury i procedur szablonu
+└── ROADMAP.template.md                 # Szablon rejestru sprintów, wydań i historii optymalizacji
 ```
 
 ---

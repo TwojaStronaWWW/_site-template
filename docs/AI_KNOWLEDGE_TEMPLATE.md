@@ -1,5 +1,6 @@
 # BAZA WIEDZY RAG: SZABLON PROJEKTU (<SITE_ID>-knowledge.txt)
-> **Instrukcja wdrożeniowa:** Skopiuj ten plik do repozytorium `VPS/services/ai-router/data/<site_id>-knowledge.txt` (gdzie `<site_id>` odpowiada atrybutowi `data-site-id` w tagu `<script src="assets/js/ai-widget.js" data-site-id="...">`), uzupełnij poniższe sekcje realnymi danymi firmy klienta oraz dopisz domenę produkcyjną do `ALLOWED_ORIGINS` w `/opt/devops-stack/.env`.
+> **Instrukcja wdrożeniowa:** Skopiuj ten plik do repozytorium `VPS/services/ai-router/data/<site_id>-knowledge.txt` (gdzie `<site_id>` odpowiada atrybutowi `data-site-id` w tagu `<script type="module" src="assets/js/ai-widget.js" data-site-id="...">`), uzupełnij poniższe sekcje realnymi danymi firmy klienta oraz dopisz domenę produkcyjną do `ALLOWED_ORIGINS` w `/opt/devops-stack/.env`.
+> Jeśli witryna posiada dynamiczną bazę wiedzy na stronie (np. encyklopedię / słownik JSON jak Salsopedia), dodaj atrybut `data-kb-url="assets/data/baza.json"` — widget będzie automatycznie wyliczał wersję wiedzy (`kb_version`), przekazywał dopasowane wpisy w `dynamic_context` oraz inwalidował pamięć podręczną (Response Cache) po każdej zmianie w bazie.
 
 ---
 
@@ -28,7 +29,7 @@
 ## 5. Twarde Reguły Anty-Halucynacyjne (Guardrails – Czego NIE obiecywać):
 - Głównym zakresem działalności jest **[wpisz główną usługę]**.
 - Czego firma **NIE wykonuje**: **[Wypisz usługi, o które klienci często pytają, ale firma ich nie świadczy]**.
-- W przypadku zapytań o nietypowe zlecenia, wyceny indywidualne spoza cennika lub terminy: **nie zgaduj i nie wymyślaj cen**. Poinformuj uczciwie, że wymaga to indywidualnego potwierdzenia i poproś o kontakt mailowy, telefoniczny lub przez formularz na dole strony.
+- W przypadku zapytań o nietypowe zlecenia, wyceny indywidualne spoza cennika lub terminy: **nie zgaduj i nie wymyślaj cen**. Poinformuj uczciwie, że wymaga to indywidualnego potwierdzenia i odeślij do kontaktu mailowego, telefonicznego lub przez formularz na dole strony.
 
 ## 6. Dane Kontaktowe:
 - **E-mail:** **[kontakt@twojadomena.pl]**
@@ -36,3 +37,8 @@
 - **Strona WWW:** **[https://twojadomena.pl]**
 - **Social Media:** **[Instagram / Facebook / LinkedIn]**
 - **Formularz kontaktowy:** dostępny bezpośrednio na dole strony głównej.
+
+## 7. Dynamiczne Centrum Wiedzy (Wiki / JSON) & Response Cache:
+- **Główne centrum wiedzy na stronie:** jeśli projekt posiada żywą bazę pojęć, produktów lub FAQ (np. `salsopedia.json` / `wiki.php`), `ai-widget.js` pobiera ją dynamicznie i wylicza deterministyczny skrót wersji `kb_version` (`computeKnowledgeVersion`).
+- **Response Cache (brak odpytywania AI przy powtórnym pytaniu):** gdy użytkownik zapyta drugi raz o to samo, odpowiedź jest serwowana natychmiast z pamięci podręcznej (`localStorage` + cache na VPS), bez zużywania limitów API i czasu oczekiwania.
+- **Automatyczna aktualizacja po zmianie w bazie wiedzy:** każda modyfikacja wpisu w bazie wiedzy (lub zdarzenie `salsopedia:updated`) zmienia `kb_version`, automatycznie unieważniając przestarzałe wpisy w cache i odświeżając wiedzę asystenta również dla wcześniej zapisanych zapytań.

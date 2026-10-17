@@ -1,9 +1,15 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupMockDom } from '../helpers/mock-dom.js';
-import { formatMarkdown, getLocalFallbackAnswer, initAiWidget } from '../../assets/js/ai-widget.js';
+import {
+  formatMarkdown,
+  getLocalFallbackAnswer,
+  computeKnowledgeVersion,
+  searchKnowledgeEntries,
+  initAiWidget
+} from '../../assets/js/ai-widget.js';
 
-describe('Uniwersalny Widget Asystenta AI (assets/js/ai-widget.js)', () => {
+describe('Uniwersalny Widget Asystenta AI v3.0 (assets/js/ai-widget.js)', () => {
   let dom;
 
   beforeEach(() => {
@@ -53,32 +59,98 @@ describe('Uniwersalny Widget Asystenta AI (assets/js/ai-widget.js)', () => {
     assert.equal(widget.toggleBtn.getAttribute('aria-expanded'), 'false');
   });
 
-  test('sendQuestion obsługuje odpowiedź z VPS AI Routera oraz fallback przy błędzie sieci', async () => {
-    dom.mockWindow.fetch = async () => ({
-      ok: true,
-      json: async () => ({
-        success: true,
-        answer: 'Wdrożenie strony z modułem **AI RAG** zajmuje od 7 dni.'
-      })
-    });
+  test('sendQuestion korzysta z Response Cache (drugie identyczne pytanie nie odpytuje ponownie AI) oraz obsługuje fallback', async () => {
+    let fetchCalls = 0;
+    dom.mockWindow.fetch = async () => {
+      fetchCalls++;
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          answer: 'Wdrożenie strony z modułem **AI RAG** zajmuje od 7 dni.'
+        })
+      };
+    };
 
     const widget = initAiWidget(dom.mockDocument, dom.mockWindow);
-    await widget.sendQuestion('Ile trwa wdrożenie?');
+    const firstRes = await widget.sendQuestion('Ile trwa wdrożenie?');
+    assert.equal(fetchCalls, 1);
+    assert.equal(firstRes.cached, false);
 
-    assert.equal(widget.getHistory().length, 2);
-    assert.equal(widget.getHistory()[0].text, 'Ile trwa wdrożenie?');
-    assert.match(widget.getHistory()[1].text, /AI RAG/);
+    // Drugie identyczne pytanie -> odpowiedź z Response Cache bez wywołania fetch!
+    const secondRes = await widget.sendQuestion('ile trwa wdrożenie?!');
+    assert.equal(fetchCalls, 1, 'Drugie pytanie o to samo nie powinno odpytywać sieci/AI');
+    assert.equal(secondRes.cached, true);
+    assert.match(secondRes.answer, /AI RAG/);
 
-    // Test awarii sieci -> automatyczny fallback bazy wiedzy
+    // Test awarii sieci dla nowego pytania -> automatyczny fallback bazy wiedzy
     dom.mockWindow.fetch = async () => {
+      fetchCalls++;
       throw new Error('Network error');
     };
     await widget.sendQuestion('Jak wygląda współpraca?');
-    assert.equal(widget.getHistory().length, 4);
-    assert.match(widget.getHistory()[3].text, /3 prostych krokach/i);
+    assert.equal(fetchCalls, 2);
+    assert.match(widget.getHistory()[5].text, /3 prostych krokach/i);
 
     // Wyczyszczenie historii rozmowy
     widget.clearBtn.dispatchEvent({ type: 'click' });
     assert.equal(widget.getHistory().length, 0);
+  });
+
+  test('Dynamic Knowledge Base: zmiana hasła w Salsopedii zmienia kbVersion, inwaliduje cache i aktualizuje zapisaną odpowiedź', async () => {
+    const initialTerms = [
+      {
+        id: 'term_32',
+        term: 'Enchufla',
+        definition: 'Podstawowy obrót i zamiana miejsc na 1-2-3.',
+        category: ['figures', 'steps'],
+        status: 'verified',
+        verification_count: 1
+      }
+    ];
+
+    let fetchCalls = 0;
+    dom.mockWindow.fetch = async () => {
+      fetchCalls++;
+      throw new Error('Offline mode - use local knowledge base');
+    };
+
+    const widget = initAiWidget(dom.mockDocument, dom.mockWindow, {
+      siteId: 'katosalsahub',
+      initialKnowledge: initialTerms,
+      skipInitialFetch: true
+    });
+
+    const v1 = widget.getKnowledgeVersion();
+    const res1 = await widget.sendQuestion('Co to jest Enchufla?');
+    assert.equal(fetchCalls, 1);
+    assert.match(res1.answer, /Podstawowy obrót i zamiana miejsc na 1-2-3/);
+
+    // Drugie zapytanie przed zmianą w Salsopedii -> trafia w cache, brak wywołania fetch
+    const resCached = await widget.sendQuestion('Co to jest Enchufla?');
+    assert.equal(fetchCalls, 1);
+    assert.equal(resCached.cached, true);
+
+    // Zmiana definicji hasła w Salsopedii
+    const updatedTerms = [
+      {
+        id: 'term_32',
+        term: 'Enchufla',
+        definition: 'Zaktualizowana definicja: obrót partnerki pod lewą ręką na 1-2-3 i wymiana miejsc na 5-6-7.',
+        category: ['figures', 'steps'],
+        status: 'verified',
+        verification_count: 2
+      }
+    ];
+    widget.updateKnowledgeEntries(updatedTerms);
+
+    const v2 = widget.getKnowledgeVersion();
+    assert.notEqual(v1, v2, 'Wersja wiedzy kbVersion musi ulec zmianie po edycji Salsopedii');
+
+    // Zapisana wcześniej odpowiedź oraz nowe zapytanie mają już zaktualizowaną wiedzę z Salsopedii
+    const resAfterUpdate = await widget.sendQuestion('Co to jest Enchufla?');
+    assert.match(resAfterUpdate.answer, /Zaktualizowana definicja: obrót partnerki pod lewą ręką/);
+    assert.equal(searchKnowledgeEntries('Enchufla', updatedTerms).length, 1);
+    assert.ok(computeKnowledgeVersion(updatedTerms).startsWith('kb_v1_'));
   });
 });

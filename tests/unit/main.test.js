@@ -1,7 +1,7 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupMockDom } from '../helpers/mock-dom.js';
-import { initNavigation, initTabs, initLightbox } from '../../assets/js/main.js';
+import { initNavigation, initSmoothScroll, initScrollAnimations, initTabs, initLightbox, initContactForm } from '../../assets/js/main.js';
 
 describe('Nawigacja i interakcje UI (assets/js/main.js)', () => {
   let dom;
@@ -236,11 +236,182 @@ describe('Nawigacja i interakcje UI (assets/js/main.js)', () => {
     // ArrowRight -> przejście do item2
     dom.mockDocument.dispatchEvent({ type: 'keydown', key: 'ArrowRight', preventDefault: () => {} });
     assert.equal(imgEl.getAttribute('src'), '/img2.webp');
+    assert.equal(lb.getCurrentIndex(), 1);
+
+    // ArrowLeft -> powrót do item1
+    dom.mockDocument.dispatchEvent({ type: 'keydown', key: 'ArrowLeft', preventDefault: () => {} });
+    assert.equal(imgEl.getAttribute('src'), '/img1.webp');
+    assert.equal(lb.getCurrentIndex(), 0);
 
     // Escape -> zamknięcie
     dom.mockDocument.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault: () => {} });
     assert.equal(modal.classList.contains('is-open'), false);
     assert.equal(modal.hasAttribute('hidden'), true);
     assert.equal(item1._focused, true);
+  });
+
+  test('initContactForm zwraca null, gdy brak formularza #contactForm w DOM', () => {
+    const emptyDom = setupMockDom();
+    const res = initContactForm(emptyDom.mockDocument, emptyDom.mockWindow.localStorage);
+    assert.equal(res, null);
+  });
+
+  test('initContactForm zapisuje i odtwarza szkic w localStorage (z pominięciem honeypotu) oraz obsługuje wysyłkę i błędy', async () => {
+    const storage = dom.mockWindow.localStorage;
+    storage.setItem('tsw_contact_draft_v1', JSON.stringify({
+      name: 'Jan Testowy',
+      phone: '500600700',
+      newsletter_consent: true,
+      website_url: 'bot-spam'
+    }));
+
+    const form = dom.mockDocument.createElement('form');
+    form.id = 'contactForm';
+    const errorDiv = dom.mockDocument.createElement('div');
+    errorDiv.id = 'formErrors';
+    const successMsg = dom.mockDocument.createElement('p');
+    successMsg.id = 'formSuccess';
+
+    const hpInput = dom.mockDocument.createElement('input');
+    hpInput.name = 'website_url';
+    hpInput.type = 'text';
+
+    const nameInput = dom.mockDocument.createElement('input');
+    nameInput.name = 'name';
+    nameInput.type = 'text';
+
+    const phoneInput = dom.mockDocument.createElement('input');
+    phoneInput.name = 'phone';
+    phoneInput.type = 'tel';
+
+    const consentInput = dom.mockDocument.createElement('input');
+    consentInput.name = 'newsletter_consent';
+    consentInput.type = 'checkbox';
+    consentInput.checked = false;
+
+    const msgArea = dom.mockDocument.createElement('textarea');
+    msgArea.name = 'message';
+
+    dom.elements.set('contactForm', form);
+    dom.elements.set('formErrors', errorDiv);
+    dom.elements.set('formSuccess', successMsg);
+    dom.elements.set('hpInput', hpInput);
+    dom.elements.set('nameInput', nameInput);
+    dom.elements.set('phoneInput', phoneInput);
+    dom.elements.set('consentInput', consentInput);
+    dom.elements.set('msgArea', msgArea);
+
+    const contact = initContactForm(dom.mockDocument, storage);
+    assert.ok(contact);
+
+    // Weryfikacja odtworzenia szkicu z localStorage (honeypot zignorowany)
+    assert.equal(nameInput.value, 'Jan Testowy');
+    assert.equal(phoneInput.value, '500600700');
+    assert.equal(consentInput.checked, true);
+    assert.equal(hpInput.value, '');
+
+    // Zmiana pola aktualizuje szkic w localStorage
+    msgArea.value = 'Proszę o szybki kontakt';
+    msgArea.dispatchEvent({ type: 'input' });
+    const savedDraft = JSON.parse(storage.getItem('tsw_contact_draft_v1'));
+    assert.equal(savedDraft.message, 'Proszę o szybki kontakt');
+    assert.equal('website_url' in savedDraft, false);
+
+    // 1. Symulacja poprawnej wysyłki formularza (200 OK)
+    const originalFetch = globalThis.fetch;
+    let sentPayload = null;
+    globalThis.fetch = async (_url, opts) => {
+      sentPayload = JSON.parse(opts.body);
+      return {
+        ok: true,
+        json: async () => ({ status: 'success', success: true, message: 'Wysłano OK!' })
+      };
+    };
+
+    try {
+      const submitFns = form._listeners.get('submit') || [];
+      await submitFns[0]({ preventDefault: () => {} });
+
+      assert.equal(sentPayload.js_check, '1');
+      assert.equal(sentPayload.name, 'Jan Testowy');
+      assert.equal(sentPayload.newsletter_consent, '1');
+      assert.equal(successMsg.style.display, 'block');
+      assert.equal(successMsg.textContent, 'Wysłano OK!');
+      assert.equal(storage.getItem('tsw_contact_draft_v1'), null);
+
+      // 2. Symulacja błędu walidacji z backendu (400 / success: false)
+      globalThis.fetch = async () => ({
+        ok: false,
+        json: async () => ({ status: 'error', success: false, message: 'Brak telefonu lub e-maila' })
+      });
+      await submitFns[0]({ preventDefault: () => {} });
+      assert.equal(errorDiv.style.display, 'block');
+      assert.equal(errorDiv.textContent, 'Brak telefonu lub e-maila');
+
+      // 3. Symulacja awarii sieciowej (wyjątek fetch)
+      globalThis.fetch = async () => {
+        throw new Error('Network error');
+      };
+      await submitFns[0]({ preventDefault: () => {} });
+      assert.equal(errorDiv.style.display, 'block');
+      assert.equal(errorDiv.textContent, 'Błąd połączenia. Spróbuj ponownie.');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('initSmoothScroll płynnie przewija do sekcji docelowej i zamyka otwarte menu mobilne', () => {
+    const link = dom.mockDocument.createElement('a');
+    link.setAttribute('href', '#services');
+
+    const section = dom.mockDocument.createElement('section');
+    section.id = 'services';
+    let scrolled = false;
+    section.scrollIntoView = () => { scrolled = true; };
+
+    dom.elements.get('primary-nav').classList.add('is-open');
+    dom.elements.set('anchor-services', link);
+    dom.elements.set('services', section);
+
+    const anchors = initSmoothScroll(dom.mockDocument);
+    assert.ok(anchors);
+    link.dispatchEvent({ type: 'click', preventDefault: () => {} });
+    assert.equal(scrolled, true);
+    assert.equal(dom.elements.get('primary-nav').classList.contains('is-open'), false);
+  });
+
+  test('initScrollAnimations wstrzymuje i wznawia animacje na podstawie widoczności (IntersectionObserver / scroll)', () => {
+    const orbitContainer = dom.mockDocument.createElement('div');
+    orbitContainer.className = 'orbit-container';
+
+    const orbitRing = dom.mockDocument.createElement('div');
+    orbitRing.className = 'orbit-ring';
+    orbitContainer.appendChild(orbitRing);
+
+    dom.elements.set('orbit-container', orbitContainer);
+    dom.elements.set('orbit-ring', orbitRing);
+
+    let observerCallback = null;
+    const origIO = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      constructor(cb) {
+        observerCallback = cb;
+      }
+      observe() {}
+    };
+
+    try {
+      const res = initScrollAnimations(dom.mockDocument);
+      assert.ok(res);
+      assert.equal(orbitContainer.classList.contains('is-visible'), false);
+
+      observerCallback([{ isIntersecting: true }]);
+      assert.equal(orbitContainer.classList.contains('is-visible'), true);
+
+      observerCallback([{ isIntersecting: false }]);
+      assert.equal(orbitContainer.classList.contains('is-visible'), false);
+    } finally {
+      globalThis.IntersectionObserver = origIO;
+    }
   });
 });
