@@ -104,9 +104,14 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     assert.match(fs.readFileSync(rateLimitsHt, 'utf-8'), /Deny from all/i);
 
     const contactCode = fs.readFileSync(contactPhp, 'utf-8');
+    const leadsStoreCode = fs.readFileSync(leadsStore, 'utf-8');
+    const gitignoreCode = fs.readFileSync(path.join(ROOT_DIR, '.gitignore'), 'utf-8');
     assert.match(contactCode, /function\s+mask_ip/i, 'Brak anonimizacji IP mask_ip() w api/contact.php');
     assert.match(contactCode, /function\s+get_env_secret/i, 'Brak get_env_secret() w api/contact.php');
     assert.match(contactCode, /OSTICKET_API_KEY/i, 'Brak integracji osTicket w api/contact.php');
+    assert.match(leadsStoreCode, /function\s+sanitize_csv_cell/i, 'Brak ochrony przed CSV Formula Injection w api/leads-store.php');
+    assert.match(leadsStoreCode, /LOCK_EX/i, 'Brak blokady wyłącznej LOCK_EX w api/leads-store.php');
+    assert.match(gitignoreCode, /!api\/sessions\/\.htaccess/, 'Plik .gitignore musi odblokowywać !api/sessions/.htaccess');
   });
 
   it('plik .gitignore chroni sesje PHP, logi i dane leadów CSV (ISO 27001)', () => {
@@ -255,13 +260,16 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     const widgetPath = path.join(ROOT_DIR, 'assets', 'js', 'ai-widget.js');
     const templatePath = path.join(ROOT_DIR, 'docs', 'AI_KNOWLEDGE_TEMPLATE.md');
     const testPath = path.join(ROOT_DIR, 'tests', 'unit', 'ai-widget.test.js');
+    const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf-8');
 
     assert.ok(fs.existsSync(widgetPath), 'Brak assets/js/ai-widget.js');
     assert.ok(fs.existsSync(templatePath), 'Brak docs/AI_KNOWLEDGE_TEMPLATE.md');
     assert.ok(fs.existsSync(testPath), 'Brak tests/unit/ai-widget.test.js');
+    assert.match(indexHtml, /<link\s+rel="preconnect"\s+href="https:\/\/ai\.twojastronawww\.pl"\s+crossorigin>/i);
 
     const widgetCode = fs.readFileSync(widgetPath, 'utf-8');
     assert.ok(widgetCode.includes('https://ai.twojastronawww.pl/chat-router.php'), 'Widget AI musi wskazywać na centralny VPS AI Router');
-    assert.strictEqual(/AIzaSy|gsk_|sk-or-v1-/i.test(widgetCode), false, 'Widget frontendowy nie może zawierać zahardkodowanych kluczy API');
+    assert.strictEqual(/AIzaSy|gsk_|csk-|cfut_|sk-or-v1-|sk-ant-/i.test(widgetCode), false, 'Widget frontendowy nie może zawierać zahardkodowanych kluczy API');
   });
 });
+

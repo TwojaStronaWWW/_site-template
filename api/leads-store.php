@@ -10,6 +10,17 @@ function is_draft_file(string $file): bool {
 }
 
 /**
+ * Ochrona przed CSV Formula Injection (OWASP DDE) — neutralizuje znaki sterujące (=, +, -, @, TAB, CR)
+ */
+function sanitize_csv_cell(string $value): string {
+    $clean = trim((string)preg_replace('/[\r\n]+/', ' ', $value));
+    if ($clean !== '' && in_array($clean[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+        return "'" . $clean;
+    }
+    return $clean;
+}
+
+/**
  * Normalizuje wiersz CSV (kompatybilność wsteczna 6 kolumn -> 8 kolumn:
  * [0]=date, [1]=time, [2]=name, [3]=email, [4]=message, [5]=ip_hash, [6]=phone, [7]=newsletter)
  */
@@ -75,6 +86,9 @@ function save_lead(array $data, bool $draft = false): void {
     if ($normalized === null) {
         return;
     }
+    $sanitizedRow = array_map(static function ($cell): string {
+        return sanitize_csv_cell((string)$cell);
+    }, $normalized);
 
     $suffix = $draft ? '_draft' : '';
     $file = __DIR__ . '/leads' . $suffix . '_' . date('Y-m') . '.csv';
@@ -87,7 +101,7 @@ function save_lead(array $data, bool $draft = false): void {
         if ($isNew) {
             fputcsv($fp, ['date', 'time', 'name', 'email', 'message', 'ip_hash', 'phone', 'newsletter']);
         }
-        fputcsv($fp, $normalized);
+        fputcsv($fp, $sanitizedRow);
         fflush($fp);
         flock($fp, LOCK_UN);
     }

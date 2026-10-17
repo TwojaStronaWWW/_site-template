@@ -38,7 +38,9 @@
 - **Social Media:** **[Instagram / Facebook / LinkedIn]**
 - **Formularz kontaktowy:** dostępny bezpośrednio na dole strony głównej.
 
-## 7. Dynamiczne Centrum Wiedzy (Wiki / JSON) & Response Cache:
+## 7. Dynamiczne Centrum Wiedzy (Wiki / JSON), Response Cache & Ekstraktor Leadów 1-Klik:
 - **Główne centrum wiedzy na stronie:** jeśli projekt posiada żywą bazę pojęć, produktów lub FAQ (np. `salsopedia.json` / `wiki.php`), `ai-widget.js` pobiera ją dynamicznie i wylicza deterministyczny skrót wersji `kb_version` (`computeKnowledgeVersion`).
-- **Response Cache (brak odpytywania AI przy powtórnym pytaniu):** gdy użytkownik zapyta drugi raz o to samo, odpowiedź jest serwowana natychmiast z pamięci podręcznej (`localStorage` + cache na VPS), bez zużywania limitów API i czasu oczekiwania.
+- **Response Cache (`< 5 ms` / 0 tokenów):** gdy użytkownik zapyta drugi raz o to samo, odpowiedź jest serwowana natychmiast z pamięci podręcznej (`localStorage` + cache na VPS), bez zużywania limitów API i czasu oczekiwania.
 - **Automatyczna aktualizacja po zmianie w bazie wiedzy:** każda modyfikacja wpisu w bazie wiedzy (lub zdarzenie `salsopedia:updated`) zmienia `kb_version`, automatycznie unieważniając przestarzałe wpisy w cache i odświeżając wiedzę asystenta również dla wcześniej zapisanych zapytań.
+- **Natychmiastowa ekstrakcja telefonu i e-maila (`📞 TELEFON` / `✉️ E-MAIL` na samej górze Ntfy):** gdy klient wpisze na czacie numer telefonu lub adres e-mail, `ai-widget.js` celowo omija lokalny cache (`hasContactPii`), a router na VPS wyciąga namiar bezpośrednio do tytułu (`Title:`) i dwóch pierwszych linii powiadomienia Push w **Ntfy.sh** (z przyciskami 1-Klik `Zadzwoń` i `Napisz e-mail`).
+

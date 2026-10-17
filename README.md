@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/PHP-8+-777BB4?style=flat-square&logo=php&logoColor=white" alt="PHP 8" />
   <img src="https://img.shields.io/badge/Tests-node:test-success?style=flat-square&logo=node.js&logoColor=white" alt="Tests" />
   <img src="https://img.shields.io/badge/Lighthouse_CI-90+-FF4E42?style=flat-square&logo=lighthouse&logoColor=white" alt="Lighthouse CI" />
-  <img src="https://img.shields.io/badge/AI_Assistant-RAG_7_Models-8A2BE2?style=flat-square" alt="AI RAG Assistant" />
+  <img src="https://img.shields.io/badge/AI_Assistant-RAG_11_Models-8A2BE2?style=flat-square" alt="AI RAG Assistant" />
   <img src="https://img.shields.io/badge/Cloudflare-DNS%20%7C%20CDN%20%7C%20Purge-F38020?style=flat-square&logo=cloudflare&logoColor=white" alt="Cloudflare" />
   <img src="https://img.shields.io/badge/Security-ISO_27001-blue?style=flat-square" alt="ISO 27001" />
 </p>
@@ -26,7 +26,7 @@
 W architekturze szablonu połączono bezkompromisową szybkość czystego frontendu z inżynierskim rygorem potoków CI/CD standardu **TwojaStronaWWW Enterprise Web Platform**:
 - **0 ciężkich bibliotek testowych:** Natywny silnik `node:test` i asercje `node:assert/strict` wbudowane w Node.js (brak Jesta, Mocha, Babela czy Webpacka).
 - **Lekki Mock DOM (`tests/helpers/mock-dom.js`):** Umożliwia testowanie interakcji przeglądarkowych bez instalowania 150 MB paczki `jsdom`.
-- **Wbudowany Asystent AI z Bazą Wiedzy Firmy (Obszar 3 RAG + Enterprise HA):** Uniwersalny widget `assets/js/ai-widget.js` połączony z centralnym routerem AI na serwerze VPS (`https://ai.twojastronawww.pl/chat-router.php` — 7 modeli LLM w kaskadzie Gemini/Groq/OpenRouter, pamięć Multi-Turn, parser Markdown odporny na XSS i lokalny fallback Zero-Downtime).
+- **Wbudowany Asystent AI z Bazą Wiedzy Firmy (Obszar 3 RAG + Enterprise HA):** Uniwersalny widget `assets/js/ai-widget.js` połączony z centralnym routerem AI na serwerze VPS (`https://ai.twojastronawww.pl/chat-router.php` — 11 modeli LLM w kaskadzie u 6 dostawców, Cache RAG `< 5 ms`, ekstrakcja leadów Ntfy 1-Klik `📞 TELEFON` / `✉️ E-MAIL`, pamięć Multi-Turn, parser Markdown odporny na XSS i lokalny fallback Zero-Downtime).
 - **Integracja Cloudflare CDN & Purge Cache API:** Optymalizacja proxy DNS, ochrona DDoS i automatyczne czyszczenie cache po wdrożeniu produkcyjnym.
 - **Bezpieczny backend PHP Flat-File CRM:** Ochrona sesji (`api/sessions/`), rate-limiting (`api/rate_limits/`) z `.htaccess: Deny from all`, honeypot oraz atomowy zapis `LOCK_EX`.
 - **Wydajność CI/CD poniżej 60 sekund:** Cały pipeline (składnia JS, walidacja PHP, testy jednostkowe, audyt Lighthouse CI oraz transfer SFTP) zamyka się w kilkadziesiąt sekund.
@@ -42,7 +42,7 @@ W architekturze szablonu połączono bezkompromisową szybkość czystego fronte
 | **Szkielet HTML5** (`index.html`) | Semantic HTML5 & WCAG 2.1 | Zgodność ze standardami W3C, poprawny DOCTYPE, meta viewport, single `<h1>`. |
 | **System Stylów** (`main.css`) | Vanilla CSS3 & Custom Properties | Reset CSS, responsywny kontener, tokeny kolorów `:root`, obsługa Dark/Light Mode. |
 | **Moduł Nawigacji** (`main.js`) | Vanilla JS (ES6+ Modules) | Dostępna nawigacja ARIA (`aria-expanded`), obsługa klawisza `Escape`, focus trap. |
-| **Asystent AI (RAG)** (`ai-widget.js`) | Vanilla ES6+ & VPS AI Router | Obszar 3 RAG (`data-site-id`), kaskada 7 modeli (Gemini/Groq/OpenRouter), XSS-safe Markdown, Zero-Downtime Fallback. |
+| **Asystent AI (RAG)** (`ai-widget.js`) | Vanilla ES6+ & VPS AI Router | Obszar 3 RAG (`data-site-id`), kaskada 11 modeli (6 dostawców), Cache `< 5 ms`, Lead Extractor 1-Klik, XSS-safe Markdown, Zero-Downtime Fallback. |
 | **Szablon Wiedzy AI** (`AI_KNOWLEDGE_TEMPLATE.md`) | Dynamic RAG Markdown/TXT | Gotowy wzorzec bazy wiedzy firmy i reguł anty-halucynacyjnych (Guardrails) dla `VPS/services/ai-router/data/`. |
 | **Silnik Mock DOM** (`mock-dom.js`) | Pure ESM Mock Environment | Symulacja `window`, `document`, `localStorage`, `sessionStorage`, `classList`, `addEventListener`. |
 | **Backend Flat-File CRM** (`api/`) | PHP 8+ (Zero-DB Flat File) | CSRF, Honeypot antyspamowy, IP z Cloudflare (`HTTP_CF_CONNECTING_IP`), `.htaccess Deny from all`. |

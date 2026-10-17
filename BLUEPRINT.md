@@ -409,27 +409,29 @@ Dla aplikacji odtwarzających streaming radiowy, podcasty lub muzykę (wzorowane
 
 ---
 
-### Krok 19: Wdrożenie Asystenta AI z Bazą Wiedzy Firmy (Obszar 3 RAG, Dynamic KB & Response Cache v3.0)
+### Krok 19: Wdrożenie Asystenta AI z Bazą Wiedzy Firmy (Obszar 3 RAG, Dynamic KB, Response Cache & 1-Klik Lead Extractor v3.0)
 Wzorzec wypracowany w **TwojaStronaWWW**, **Fuego Lingua** oraz **Kato Salsa Hub** i scentralizowany w `VPS/services/ai-router`:
 1. **Architektura (0,00 PLN / mies., 0 kluczy API na frontendzie):**
-   - Witryna ładuje lekki, bezbiblioteczny moduł `assets/js/ai-widget.js` (`<script type="module" src="assets/js/ai-widget.js" data-site-id="twojprojekt" data-title="Asystent Twojej Firmy" data-kb-url="assets/data/knowledge.json"></script>`).
-   - Widget wysyła zapytania `POST` z pamięcią rozmowy (`history` do 8 wiadomości z `sessionStorage`), sygnaturą wersji bazy wiedzy (`kb_version`) oraz dynamicznym kontekstem (`dynamic_context`) na adres `https://ai.twojastronawww.pl/chat-router.php`.
-2. **Dwupoziomowy Response Cache (Query Cache) i Automatyczna Inwalidacja:**
-   - **Cache po stronie przeglądarki (`tsw_ai_cache_<siteId>`):** Gdy użytkownik zadaje to samo pytanie po raz drugi, znormalizowany klucz (`normalizeCacheQuery`) zwraca odpowiedź natychmiast (0 ms) bez ponownego odpytywania modelu AI. Wiadomości zawierające e-mail lub telefon są wykluczone z cache (Zero-PII).
+   - W sekcji `<head>` witryna definiuje `<link rel="preconnect" href="https://ai.twojastronawww.pl" crossorigin>`, a przed `</body>` ładuje lekki, bezbiblioteczny moduł `assets/js/ai-widget.js` (`<script type="module" src="assets/js/ai-widget.js" data-site-id="twojprojekt" data-title="Asystent Twojej Firmy" data-kb-url="assets/data/knowledge.json"></script>`).
+   - Widget wysyła zapytania `POST` (z `AbortController` 9s timeout) wraz z pamięcią rozmowy (`history` do 8 wiadomości z `sessionStorage`), sygnaturą wersji bazy wiedzy (`kb_version`) oraz dynamicznym kontekstem (`dynamic_context`) na adres `https://ai.twojastronawww.pl/chat-router.php`.
+2. **Dwupoziomowy Response Cache (Query Cache), Automatyczna Inwalidacja i Ekstrakcja Leadów 1-Klik:**
+   - **Cache po stronie przeglądarki (`tsw_ai_cache_<siteId>`):** Gdy użytkownik zadaje to samo pytanie po raz drugi, znormalizowany klucz (`normalizeCacheQuery`) zwraca odpowiedź natychmiast (0 ms) bez ponownego odpytywania modelu AI.
+   - **Priorytetowe przechwytywanie telefonów i e-maili (`hasContactPii` $\rightarrow$ Ntfy 1-Klik):** Wiadomości zawierające numer telefonu lub adres e-mail celowo omijają cache przeglądarki i trafiają bezpośrednio do `chat-router.php` na VPS. Router automatycznie wyodrębnia i formatuje numer (`📞 TELEFON: +48 XXX XXX XXX`) oraz e-mail (`✉️ E-MAIL: ...`), umieszczając je bezpośrednio w tytule (`Title:`) i pierwszych dwóch liniach powiadomienia Push w **Ntfy.sh** (z przyciskami 1-Klik `tel:` / `mailto:` oraz opcjonalnym webhookiem `LEAD_WEBHOOK_URL`), zachowując 100% rygor Zero-PII na dysku.
    - **Dynamiczna synchronizacja z bazą wiedzy (np. Salsopedią):** Widget wylicza deterministyczny skrót FNV-1a (`computeKnowledgeVersion`) ze wszystkich wpisów bazy wiedzy. Każda zmiana w bazie wiedzy (dodanie, edycja, weryfikacja lub usunięcie hasła przez `salsopedia:updated` / `updateKnowledgeEntries`) natychmiast unieważnia nieaktualny cache i **automatycznie odświeża odpowiedzi na wcześniej zadane pytania w bieżącej sesji czatu**.
-   - **Cache po stronie serwera (`chat-router.php`):** Klucz SHA-256 uwzględnia `site_id`, `filemtime`, `kb_version`, `dynamic_context` oraz historię rozmowy.
-3. **7-Modelowa Kaskada High-Availability i Cooldown na VPS:**
-   - Centralny router na VPS posiada 3 niezależne klucze API zarejestrowane w sejfie **KeePass** (`Databasekpoczatek.kdbx` $\rightarrow$ `VPS - TwojaStronaWWW`): `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
-   - W razie limitu (`429`) lub przeciążenia (`503`), router automatycznie przełącza zapytanie przez kaskadę modeli Gemini / Gemma / Groq LPU / OpenRouter i nakłada tymczasowy cooldown na przeciążony model (`ai-stats.php`).
+   - **Cache po stronie serwera (`chat-router.php` + `warm-ai-cache.sh`):** Klucz SHA-256 uwzględnia `site_id`, `filemtime`, `kb_version`, `dynamic_context` oraz historię rozmowy (czas odpowiedzi `< 5 ms`).
+3. **11-Modelowa Kaskada High-Availability i Cooldown na VPS:**
+   - Centralny router na VPS posiada 6 niezależnych kluczy API zarejestrowanych w sejfie **KeePass** (`Databasekpoczatek.kdbx` $\rightarrow$ `VPS - TwojaStronaWWW`): `GEMINI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `CF_AI_API_TOKEN`, `OPENROUTER_API_KEY` oraz `ANTHROPIC_API_KEY`.
+   - W razie limitu (`429`), przeciążenia (`503`) lub ucięcia odpowiedzi (`MAX_TOKENS`), router automatycznie przełącza zapytanie przez 11 modeli (`gemini-3.5-flash` $\rightarrow$ `gemini-3.5-flash-lite` $\rightarrow$ `gemini-3.7-flash` $\rightarrow$ `gemini-3.8-flash` $\rightarrow$ `gemma-4-31b-it` $\rightarrow$ `groq/gpt-oss-120b` $\rightarrow$ `cerebras/gpt-oss-120b` $\rightarrow$ `cerebras/qwen-3.8-27b` $\rightarrow$ `cloudflare/llama-3.3-70b` $\rightarrow$ `openrouter/nemotron-3-super-120b:free` $\rightarrow$ `anthropic/claude-haiku-4-5`) i nakłada tymczasowy cooldown na przeciążony model (`ai-stats.php`).
 4. **Przygotowanie Bazy Wiedzy RAG dla Nowego Klienta:**
    - Skopiuj szablon `docs/AI_KNOWLEDGE_TEMPLATE.md` do repozytorium `VPS/services/ai-router/data/<site_id>-knowledge.txt`.
    - Uzupełnij cennik, ofertę, proces współpracy oraz sekcję **Guardrails (Twarde Reguły Anty-Halucynacyjne)** określającą, jakich usług firma nie świadczy i kiedy odsyłać do kontaktu bezpośredniego.
-   - Dopisz domenę produkcyjną witryny do zmiennej `ALLOWED_ORIGINS` w `/opt/devops-stack/.env` na serwerze VPS.
+   - Dopisz domenę produkcyjną witryny do zmiennej `ALLOWED_ORIGINS` w `/opt/devops-stack/.env` na serwerze VPS oraz pytania startowe do `VPS/scripts/warm-ai-cache.sh`.
 5. **Bezpieczeństwo XSS, Zero-Downtime Fallback i Obserwowalność:**
    - Odpowiedzi na frontendzie są parsowane przez `formatMarkdown()` (escapowanie `& < > " '` przed renderowaniem pogrubień, list i linków).
    - W razie braku internetu po stronie klienta lub chwilowej niedostępności sieci, widget automatycznie odpowiada z lokalnej funkcji `getLocalFallbackAnswer()` połączonej z wyszukiwarką `searchKnowledgeEntries()`.
-   - Ruch, latencja `p50`/`p95`, wykorzystanie modeli i powody odrzuceń są monitorowane w czasie rzeczywistym na 25-panelowym dashboardzie Grafany **AI Router - Gemini Proxy Monitor** (`uid: ai-router-overview`, bez logowania treści pytań ani adresów IP zgodnie z ISO 27001).
+   - Ruch, trafienia w Cache RAG, pozyskane leady (`ai_router_leads_total`), latencja `p50`/`p95`, wykorzystanie modeli i powody odrzuceń są monitorowane w czasie rzeczywistym na dashboardzie Grafany **AI Router - Gemini Proxy Monitor** (`uid: ai-router-overview`, bez logowania treści pytań ani adresów IP zgodnie z ISO 27001).
 
 ---
 *Dokumentacja inżynierska platformy TwojaStronaWWW.*
+
 

@@ -4,7 +4,8 @@
  * Skumulowane najlepsze praktyki z TwojaStronaWWW, FuegoLingua, KatoSalsaHub & _site-template:
  * - Architektura Platform-First & Zero-Bloat (Vanilla ES6+, 100% Separation of Concerns - brak stylów inline)
  * - Komunikacja z centralnym routerem AI na VPS (https://ai.twojastronawww.pl/chat-router.php)
- * - Obsługa 7-modelowej kaskady High-Availability po stronie VPS
+ * - Obsługa 11-modelowej kaskady High-Availability (6 dostawców API) po stronie VPS
+ * - Priorytetowe przekazywanie leadów kontaktowych (telefon / e-mail omija cache i wyzwala Ntfy 1-Klik)
  * - Dynamiczne Centrum Wiedzy ze strony i bazy JSON/Wiki (np. Salsopedia) z wyszukiwaniem fleksyjnym
  * - Dwupoziomowy Response Cache (pamięć podręczna zapytań): gdy klient zapyta dwa razy o to samo,
  *   odpowiedź wraca w 0 ms z cache bez ponownego odpytywania modelu AI
@@ -61,7 +62,10 @@ export function normalizeCacheQuery(text) {
   if (!text) return '';
   return String(text)
     .toLowerCase()
-    .replace(/[?!.,;:]+$/g, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ł/g, 'l')
+    .replace(/[?!.,;:()"'«»„”`~[\]{}/\\|_+-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -270,16 +274,27 @@ export function formatMarkdown(rawText) {
   // Pogrubienia **tekst**
   safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
+  // Kursywa *tekst*
+  safe = safe.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
   // Klikalne adresy URL (https://...)
   safe = safe.replace(
-    /(https?:\/\/[^\s<)]+)/g,
+    /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer" class="tsw-ai-link">$1</a>'
   );
 
-  // Klikalne adresy e-mail
+  // Klikalne adresy e-mail oraz linki wewnętrzne (#kontakt, salsopedia.html)
   safe = safe.replace(
     /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
     '<a href="mailto:$1" class="tsw-ai-link">$1</a>'
+  );
+  safe = safe.replace(
+    /(^|\s)(#[a-zA-Z0-9_-]+)\b/g,
+    '$1<a href="$2" class="tsw-ai-link">$2</a>'
+  );
+  safe = safe.replace(
+    /(^|[\s(])(salsopedia\.html(?:#[a-zA-Z0-9_-]+)?)/g,
+    '$1<a href="$2" class="tsw-ai-link">$2</a>'
   );
 
   const lines = safe.split(/\r?\n/);
@@ -434,7 +449,7 @@ export function getLocalFallbackAnswer(question, siteId = 'twojastronawww', know
   }
 
   if (q.includes('ai') || q.includes('czat') || q.includes('bot') || q.includes('asystent') || q.includes('rag')) {
-    return 'Wdrażamy dedykowanych **Asystentów AI z bazą wiedzy firmy (RAG)** zintegrowanych z centralną bramką kaskadową (7 modeli LLM, pamięć podręczna zapytań):\n- Koszt wdrożenia: **od 900 PLN netto** (jednorazowa konfiguracja)\n- Działa **24/7**, odpowiada w ułamku sekundy z pamięci podręcznej i korzysta z darmowych pul API\n- Automatycznie przesyła powiadomienia na telefon, gdy klient zostawi namiar kontaktowy.';
+    return 'Wdrażamy dedykowanych **Asystentów AI z bazą wiedzy firmy (RAG)** zintegrowanych z centralną bramką kaskadową (11 modeli LLM, pamięć podręczna zapytań `< 5 ms`):\n- Koszt wdrożenia: **od 900 PLN netto** (jednorazowa konfiguracja)\n- Działa **24/7**, odpowiada w ułamku sekundy z pamięci podręcznej i korzysta z darmowych pul API\n- Automatycznie przesyła powiadomienia na telefon (z numerem telefonu i e-mailem na samej górze wiadomości), gdy klient zostawi namiar kontaktowy.';
   }
 
   if (q.includes('współprac') || q.includes('wspolprac') || q.includes('krok') || q.includes('proces') || q.includes('etap') || q.includes('czas') || q.includes('ile trwa') || q.includes('jak wygląda')) {
@@ -464,7 +479,11 @@ export function getLocalFallbackAnswer(question, siteId = 'twojastronawww', know
  */
 export function initAiWidget(doc = document, win = globalThis.window, options = {}) {
   if (!doc || !doc.body) return null;
-  if (doc.getElementById('tsw-ai-widget-root')) return null;
+  const existingRoot = doc.getElementById('tsw-ai-widget-root');
+  if (existingRoot && !options.forceReinit) return null;
+  if (existingRoot && options.forceReinit && existingRoot.parentNode) {
+    existingRoot.parentNode.removeChild(existingRoot);
+  }
 
   const scriptEl =
     doc.currentScript ||
@@ -548,7 +567,7 @@ export function initAiWidget(doc = document, win = globalThis.window, options = 
   function hasContactPii(text) {
     const s = String(text || '');
     const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-    const phoneRegex = /(?:\+?48[\s-]?)?(?:\d[\s-]?){8}\d/;
+    const phoneRegex = /(?:\+?48[\s.\-()]*)?(?:\d[\s.\-()]*){8}\d/;
     return emailRegex.test(s) || phoneRegex.test(s);
   }
 
@@ -883,7 +902,7 @@ export function initAiWidget(doc = document, win = globalThis.window, options = 
       <div class="tsw-ai-chips" id="tswAiChips"></div>
 
       <form class="tsw-ai-input-bar" id="tswAiForm">
-        <input type="text" class="tsw-ai-input" id="tswAiInput" placeholder="${placeholderText}" aria-label="Zadaj pytanie asystentowi" required autocomplete="off" />
+        <input type="text" class="tsw-ai-input" id="tswAiInput" placeholder="${placeholderText}" aria-label="Zadaj pytanie asystentowi" maxlength="500" required autocomplete="off" />
         <button type="submit" class="tsw-ai-send" id="tswAiSendBtn">Wyślij</button>
       </form>
     </div>

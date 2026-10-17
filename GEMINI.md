@@ -97,8 +97,9 @@ _site-template/
    - Testy jednostkowe oparte wyłącznie na wbudowanym module `node:test` i `node:assert/strict`.
    - **Zakaz** instalowania ciężkich bibliotek testowych (Jest, Mocha, Karma, jsdom).
 5. **Standard Asystenta AI (Obszar 3: AI z Bazą Wiedzy Firmy RAG + Centralny VPS AI Router):**
-   - **Zero kluczy API na frontendzie:** Kod strony (`assets/js/ai-widget.js`) komunikuje się wyłącznie z centralną bramką `https://ai.twojastronawww.pl/chat-router.php` na serwerze VPS (obsługującą 7-modelową kaskadę Gemini + Groq + OpenRouter z automatycznym Cooldownem i telemetrią Prometheus/Grafana).
-   - **Izolacja bazy wiedzy RAG (`site_id`):** Każdy projekt posiada dedykowany plik wiedzy `VPS/services/ai-router/data/<site_id>-knowledge.txt` tworzony na bazie `docs/AI_KNOWLEDGE_TEMPLATE.md` (z twardymi regułami anty-halucynacyjnymi Guardrails) oraz domenę dopisaną do `ALLOWED_ORIGINS`.
+   - **Zero kluczy API na frontendzie:** Kod strony (`assets/js/ai-widget.js`) komunikuje się wyłącznie z centralną bramką `https://ai.twojastronawww.pl/chat-router.php` na serwerze VPS (obsługującą **11-modelową kaskadę** u 6 dostawców: Gemini 3.5/3.7/3.8 + Gemma 4 + Groq LPU + Cerebras WSE + Cloudflare Workers AI + OpenRouter `:free` + Anthropic Claude Haiku 4.5, z automatycznym Cooldownem, Cache RAG `< 5 ms` i telemetrią Prometheus/Grafana).
+   - **Ekstrakcja Leadów Kontaktowych 1-Klik (`📞 TELEFON` / `✉️ E-MAIL`):** Wiadomości zawierające numer telefonu lub adres e-mail celowo omijają lokalny cache przeglądarki (`hasContactPii`), dzięki czemu centralny router na VPS natychmiast wyodrębnia telefon/e-mail na samą górę powiadomienia Push w **Ntfy.sh** (z przyciskami 1-Klik `tel:` i `mailto:`) bez logowania PII na dysku.
+   - **Izolacja bazy wiedzy RAG (`site_id`):** Każdy projekt posiada dedykowany plik wiedzy `VPS/services/ai-router/data/<site_id>-knowledge.txt` tworzony na bazie `docs/AI_KNOWLEDGE_TEMPLATE.md` (z twardymi regułami anty-halucynacyjnymi Guardrails), rozgrzewany skryptem `VPS/scripts/warm-ai-cache.sh`, oraz domenę dopisaną do `ALLOWED_ORIGINS`.
    - **Ochrona XSS i ciągłość działania (Zero-Downtime):** Odpowiedzi modelu są parsowane przez funkcję `formatMarkdown()` escapującą znaczniki HTML przed formatowaniem, a w razie braku sieci widget automatycznie korzysta z lokalnego fallbacku `getLocalFallbackAnswer()`.
 
 ---

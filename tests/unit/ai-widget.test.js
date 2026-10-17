@@ -20,13 +20,16 @@ describe('Uniwersalny Widget Asystenta AI v3.0 (assets/js/ai-widget.js)', () => 
     dom.elements.set('ai-script', scriptTag);
   });
 
-  test('formatMarkdown bezpiecznie escapuje HTML (ochrona XSS) i formatuje pogrubienia, listy oraz linki', () => {
-    const xss = '<script>alert("xss")</script> **Wycena 24h** kontakt@twojastronawww.pl https://twojastronawww.pl\n- Krok 1\n- Krok 2';
+  test('formatMarkdown bezpiecznie escapuje HTML (ochrona XSS) i formatuje pogrubienia, kursywę, listy oraz linki', () => {
+    const xss = '<script>alert("xss")</script> **Wycena 24h** *szybko* #contact salsopedia.html kontakt@twojastronawww.pl https://twojastronawww.pl\n- Krok 1\n- Krok 2';
     const html = formatMarkdown(xss);
 
     assert.equal(html.includes('<script>'), false);
     assert.ok(html.includes('&lt;script&gt;'));
     assert.ok(html.includes('<strong>Wycena 24h</strong>'));
+    assert.ok(html.includes('<em>szybko</em>'));
+    assert.ok(html.includes('href="#contact"'));
+    assert.ok(html.includes('href="salsopedia.html"'));
     assert.ok(html.includes('href="mailto:kontakt@twojastronawww.pl"'));
     assert.ok(html.includes('href="https://twojastronawww.pl"'));
     assert.ok(html.includes('<ul class="tsw-ai-list"><li>Krok 1</li><li>Krok 2</li></ul>'));
@@ -153,4 +156,25 @@ describe('Uniwersalny Widget Asystenta AI v3.0 (assets/js/ai-widget.js)', () => 
     assert.equal(searchKnowledgeEntries('Enchufla', updatedTerms).length, 1);
     assert.ok(computeKnowledgeVersion(updatedTerms).startsWith('kb_v1_'));
   });
+
+  test('Lead Extractor Contract: wiadomości z numerem telefonu lub e-mailem (hasContactPii) omijają cache i zawsze trafiają do VPS AI Routera', async () => {
+    let fetchCalls = 0;
+    dom.mockWindow.fetch = async () => {
+      fetchCalls++;
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          answer: 'Dziękujemy! Oddzwonimy pod podany numer.'
+        })
+      };
+    };
+
+    const widget = initAiWidget(dom.mockDocument, dom.mockWindow);
+    await widget.sendQuestion('Proszę o telefon: (+48) 500.600.700');
+    await widget.sendQuestion('Proszę o telefon: (+48) 500.600.700');
+    assert.equal(fetchCalls, 2, 'Wiadomość z numerem telefonu nie może być cachowana lokalnie (musi wyzwolić Ntfy na VPS)');
+    assert.equal(widget.getCachedAnswer('Proszę o telefon: (+48) 500.600.700'), null);
+  });
 });
+
