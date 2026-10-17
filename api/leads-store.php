@@ -44,18 +44,21 @@ function read_leads(bool $draft = false, int $limit = 200): array {
             continue;
         }
 
-        if (($h = fopen($file, 'r')) === false) {
+        if (($h = @fopen($file, 'rb')) === false) {
             continue;
         }
 
         $fileRows = [];
-        fgetcsv($h);
+        if (@flock($h, LOCK_SH)) {
+            fgetcsv($h);
 
-        while (($row = fgetcsv($h)) !== false) {
-            $normalized = normalize_lead_row($row);
-            if ($normalized !== null) {
-                array_unshift($fileRows, $normalized);
+            while (($row = fgetcsv($h)) !== false) {
+                $normalized = normalize_lead_row($row);
+                if ($normalized !== null) {
+                    array_unshift($fileRows, $normalized);
+                }
             }
+            @flock($h, LOCK_UN);
         }
         fclose($h);
 
@@ -92,18 +95,105 @@ function save_lead(array $data, bool $draft = false): void {
 
     $suffix = $draft ? '_draft' : '';
     $file = __DIR__ . '/leads' . $suffix . '_' . date('Y-m') . '.csv';
-    $isNew = !file_exists($file);
 
-    $fp = fopen($file, 'a');
+    $fp = @fopen($file, 'a+b');
     if (!$fp) return;
 
-    if (flock($fp, LOCK_EX)) {
+    if (@flock($fp, LOCK_EX)) {
+        clearstatcache(true, $file);
+        $stat = fstat($fp);
+        $isNew = ($stat === false || ($stat['size'] ?? 0) === 0);
         if ($isNew) {
             fputcsv($fp, ['date', 'time', 'name', 'email', 'message', 'ip_hash', 'phone', 'newsletter']);
         }
         fputcsv($fp, $sanitizedRow);
         fflush($fp);
-        flock($fp, LOCK_UN);
+        @flock($fp, LOCK_UN);
     }
     fclose($fp);
+}
+
+/**
+ * Współbieżny odczyt pliku JSON z blokadą współdzieloną flock(LOCK_SH)
+ */
+function read_json_file(string $file): array {
+    if (!file_exists($file)) return [];
+    $fp = @fopen($file, 'rb');
+    if (!$fp) return [];
+    $content = '';
+    if (@flock($fp, LOCK_SH)) {
+        clearstatcache(true, $file);
+        $size = (int)@filesize($file);
+        if ($size > 0) {
+            $content = (string)fread($fp, $size);
+        }
+        @flock($fp, LOCK_UN);
+    }
+    fclose($fp);
+    if ($content === '') return [];
+    $data = json_decode($content, true);
+    return is_array($data) ? $data : [];
+}
+
+/**
+ * Atomowa transakcja Read-Modify-Write (RMW) na pliku JSON z blokadą wyłączną flock(LOCK_EX)
+ * utrzymywaną przez cały cykl: Odczyt -> Modyfikacja -> Kopia .bak -> Zapis -> Zwolnienie blokady.
+ * Eliminuje wyścigi TOCTOU (Lost Update) przy równoczesnych operacjach wielu użytkowników/moderatorów.
+ *
+ * @param string   $file       Ścieżka do pliku JSON
+ * @param callable $mutator    Funkcja function(array &$data): mixed — zwraca false, aby anulować zapis
+ * @param bool     $purgeCache Czy wysłać nagłówek X-LiteSpeed-Purge
+ * @return array{ok: bool, result: mixed}
+ */
+function update_json_file(string $file, callable $mutator, bool $purgeCache = true): array {
+    $fp = @fopen($file, 'c+b');
+    if (!$fp) {
+        return ['ok' => false, 'result' => null];
+    }
+
+    if (!@flock($fp, LOCK_EX)) {
+        fclose($fp);
+        return ['ok' => false, 'result' => null];
+    }
+
+    rewind($fp);
+    $existingContent = stream_get_contents($fp);
+    $data = [];
+    if ($existingContent !== false && $existingContent !== '') {
+        $decoded = json_decode($existingContent, true);
+        if (is_array($decoded)) {
+            $data = $decoded;
+        }
+    }
+
+    $mutationResult = $mutator($data);
+    if ($mutationResult === false) {
+        @flock($fp, LOCK_UN);
+        fclose($fp);
+        return ['ok' => false, 'result' => null];
+    }
+
+    $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    if ($encoded === false) {
+        @flock($fp, LOCK_UN);
+        fclose($fp);
+        return ['ok' => false, 'result' => null];
+    }
+
+    if ($existingContent !== false && strlen($existingContent) > 0) {
+        @file_put_contents($file . '.bak', $existingContent, LOCK_EX);
+    }
+
+    ftruncate($fp, 0);
+    rewind($fp);
+    $written = fwrite($fp, $encoded);
+    fflush($fp);
+    @flock($fp, LOCK_UN);
+    fclose($fp);
+
+    if ($written !== false && $purgeCache && !headers_sent()) {
+        header("X-LiteSpeed-Purge: *");
+    }
+
+    return ['ok' => $written !== false, 'result' => $mutationResult];
 }

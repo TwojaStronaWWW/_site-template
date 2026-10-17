@@ -1,7 +1,16 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupMockDom } from '../helpers/mock-dom.js';
-import { initNavigation, initSmoothScroll, initScrollAnimations, initTabs, initLightbox, initContactForm } from '../../assets/js/main.js';
+import {
+  initNavigation,
+  initSmoothScroll,
+  initScrollAnimations,
+  initTabs,
+  initLightbox,
+  initContactForm,
+  computeSearchRelevance,
+  sortAndFilterByRelevance
+} from '../../assets/js/main.js';
 
 describe('Nawigacja i interakcje UI (assets/js/main.js)', () => {
   let dom;
@@ -413,5 +422,28 @@ describe('Nawigacja i interakcje UI (assets/js/main.js)', () => {
     } finally {
       globalThis.IntersectionObserver = origIO;
     }
+  });
+
+  test('sortAndFilterByRelevance priorytetyzuje dopasowania w tytule nad opisem (Search Relevance Ranking vs. A–Z)', () => {
+    const sampleItems = [
+      { term: 'Campana (Cowbell)', definition: 'Dzwonek perkusyjny używany w muzyce Timba i Salsa.' },
+      { term: 'Despelote', definition: 'Ekspresyjny ruch ciałem popularny w kubańskiej Timbie.' },
+      { term: 'Timba', definition: 'Nowoczesny, energetyczny gatunek muzyki kubańskiej.' },
+      { term: 'Timbales (Pailas)', definition: 'Para metalowych bębnów perkusyjnych.' },
+      { term: 'Bongó (Bongosy)', definition: 'Kubańskie bębenki trzymane między kolanami.' }
+    ];
+
+    // 1. Puste zapytanie -> sortowanie alfabetyczne A–Z
+    const alpha = sortAndFilterByRelevance(sampleItems, '');
+    assert.equal(alpha[0].term, 'Bongó (Bongosy)');
+
+    // 2. Zapytanie "timba" -> dokładny tytuł "Timba" na 1. miejscu, prefiks "Timbales" na 2. miejscu, przed opisami
+    const ranked = sortAndFilterByRelevance(sampleItems, 'timba');
+    assert.equal(ranked[0].term, 'Timba');
+    assert.equal(ranked[1].term, 'Timbales (Pailas)');
+    assert.ok(computeSearchRelevance(ranked[0], 'timba') > computeSearchRelevance(ranked[2], 'timba'));
+
+    // 3. Ignorowanie znaków diakrytycznych ("bongo" -> "Bongó (Bongosy)" = 90 pkt)
+    assert.equal(computeSearchRelevance(sampleItems[4], 'bongo'), 90);
   });
 });

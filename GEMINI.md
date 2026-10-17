@@ -91,8 +91,12 @@ _site-template/
    - Sesje PHP (`api/sessions/*`), liczniki rate-limitera (`api/rate_limits/*.json`) oraz zebrane kontakty (`api/leads_*.csv`, pliki `.log`) są bezwzględnie wykluczone w `.gitignore`.
    - Wszelkie prywatne katalogi API muszą posiadać regułę Apache `Deny from all` w dedykowanym `.htaccess`.
    - Wszystkie poświadczenia produkcyjne (SFTP, Cloudflare, klucze AI) są ewidencjonowane w sejfie **KeePass** (`Databasekpoczatek.kdbx` $\rightarrow$ `VPS - TwojaStronaWWW`).
-3. **Ochrona transakcyjna współbieżności:**
-   - Wszystkie operacje zapisu do plików płaskich (CSV/JSON) muszą być realizowane atomowo z blokadą wyłączną (`LOCK_EX`).
+3. **Ochrona transakcyjna współbieżności (Anti-TOCTOU, Session Unlocking & In-Flight Guards):**
+   - **Pełna transakcja Read-Modify-Write (`update_json_file`):** Zakaz rozdzielania odczytu (`LOCK_SH`) i zapisu (`LOCK_EX`) przy modyfikacji plików JSON. Wszystkie mutacje muszą trzymać jedną nieprzerwaną blokadę wyłączną `flock($fp, LOCK_EX)` przez cały cykl: `Odczyt -> Modyfikacja -> Kopia .bak -> Zapis -> Zwolnienie blokady`.
+   - **Weryfikacja nowego pliku CSV wewnątrz `LOCK_EX`:** Przy dopisywaniu do plików CSV (`save_lead`) sprawdzenie, czy plik wymaga nagłówka (`fstat($fp)['size'] === 0`), musi odbywać się po uzyskaniu `flock($fp, LOCK_EX)`.
+   - **Wczesne zwalnianie sesji PHP (`@session_write_close()`):** Plik sesji musi być zwalniany natychmiast po odczycie/zapisie zmiennych `$_SESSION`, przed operacjami plikowymi oraz zewnętrznymi wywołaniami sieciowymi cURL (np. osTicket / Webhooki), aby nie blokować równoległych zapytań z tej samej przeglądarki.
+   - **Izolacja PID przy zapisach atomowych w Node.js (`writeFileAtomically`):** Pliki tymczasowe przed `fs.renameSync()` muszą zawierać unikalny sufiks `${filePath}.${process.pid}.${Date.now()}.${rand}.tmp` oraz sprzątanie w bloku `catch`.
+   - **Strażnik In-Flight na frontendzie (`inFlightMutations` / `isSubmitting`):** Wszystkie przyciski mutacji i formularze muszą blokować wielokrotne kliknięcia do czasu zakończenia żądania `fetch` (`finally`).
 4. **Zero-Dependency Testing (Natywny ekosystem Node.js):**
    - Testy jednostkowe oparte wyłącznie na wbudowanym module `node:test` i `node:assert/strict`.
    - **Zakaz** instalowania ciężkich bibliotek testowych (Jest, Mocha, Karma, jsdom).
@@ -101,6 +105,10 @@ _site-template/
    - **Ekstrakcja Leadów Kontaktowych 1-Klik (`📞 TELEFON` / `✉️ E-MAIL`):** Wiadomości zawierające numer telefonu lub adres e-mail celowo omijają lokalny cache przeglądarki (`hasContactPii`), dzięki czemu centralny router na VPS natychmiast wyodrębnia telefon/e-mail na samą górę powiadomienia Push w **Ntfy.sh** (z przyciskami 1-Klik `tel:` i `mailto:`) bez logowania PII na dysku.
    - **Izolacja bazy wiedzy RAG (`site_id`):** Każdy projekt posiada dedykowany plik wiedzy `VPS/services/ai-router/data/<site_id>-knowledge.txt` tworzony na bazie `docs/AI_KNOWLEDGE_TEMPLATE.md` (z twardymi regułami anty-halucynacyjnymi Guardrails), rozgrzewany skryptem `VPS/scripts/warm-ai-cache.sh`, oraz domenę dopisaną do `ALLOWED_ORIGINS`.
    - **Ochrona XSS i ciągłość działania (Zero-Downtime):** Odpowiedzi modelu są parsowane przez funkcję `formatMarkdown()` escapującą znaczniki HTML przed formatowaniem, a w razie braku sieci widget automatycznie korzysta z lokalnego fallbacku `getLocalFallbackAnswer()`.
+6. **Dwutrybowy Ranking Trafności Wyszukiwania (Search Relevance Ranking vs. A–Z):**
+   - Wszelkie wyszukiwarki słowników, katalogów, FAQ i baz wiedzy na frontendzie (`sortAndFilterByRelevance` / `computeSearchRelevance`) muszą działać w dwóch trybach:
+     - **Puste zapytanie (Tryb przeglądania):** Sortowanie alfabetyczne A–Z (`localeCompare(..., 'pl', { sensitivity: 'base' })`).
+     - **Aktywne zapytanie (Tryb wyszukiwania):** Sortowanie malejąco wg wagi trafności: dokładny tytuł (`100 pkt`) $\rightarrow$ główny człon tytułu przed nawiasem (`90 pkt`) $\rightarrow$ prefiks tytułu (`80 pkt`) $\rightarrow$ prefiks polskiego rdzenia fleksyjnego (`75 pkt`) $\rightarrow$ pełne słowo / podciąg / odmiana w tytule (`70–60 pkt`) $\rightarrow$ wystąpienie w opisie/definicji (`25–20 pkt`), z alfabetycznym tie-breakerem przy remisie.
 
 ---
 

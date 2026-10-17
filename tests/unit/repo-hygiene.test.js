@@ -111,6 +111,9 @@ describe('Higiena repozytorium i bezpieczeństwo danych (ISO 27001)', () => {
     assert.match(contactCode, /OSTICKET_API_KEY/i, 'Brak integracji osTicket w api/contact.php');
     assert.match(leadsStoreCode, /function\s+sanitize_csv_cell/i, 'Brak ochrony przed CSV Formula Injection w api/leads-store.php');
     assert.match(leadsStoreCode, /LOCK_EX/i, 'Brak blokady wyłącznej LOCK_EX w api/leads-store.php');
+    assert.match(leadsStoreCode, /LOCK_SH/i, 'Brak blokady współdzielonej LOCK_SH w api/leads-store.php');
+    assert.match(leadsStoreCode, /fstat\s*\(\s*\$fp\s*\)/i, 'Sprawdzanie rozmiaru nowego pliku CSV (fstat) musi odbywać się wewnątrz LOCK_EX');
+    assert.match(leadsStoreCode, /function\s+update_json_file/i, 'Brak transakcyjnej funkcji RMW update_json_file() w api/leads-store.php');
     assert.match(gitignoreCode, /!api\/sessions\/\.htaccess/, 'Plik .gitignore musi odblokowywać !api/sessions/.htaccess');
   });
 

@@ -36,6 +36,8 @@ Niniejszy dokument stanowi kompletny, ustandaryzowany przewodnik po architekturz
    - [Krok 17: Środowisko Lokalne Docker (PHP 8.3 Full-Stack Parity)](#krok-17-środowisko-lokalne-docker-php-83-full-stack-parity)
    - [Krok 18: Rejestracja w Centralnym Monitoringu VPS (Uptime Kuma & Ntfy)](#krok-18-rejestracja-w-centralnym-monitoringu-vps-uptime-kuma--ntfy)
    - [Krok 19: Wdrożenie Asystenta AI z Bazą Wiedzy Firmy (Obszar 3 RAG & Centralny VPS AI Router)](#krok-19-wdrożenie-asystenta-ai-z-bazą-wiedzy-firmy-obszar-3-rag--centralny-vps-ai-router)
+   - [Krok 20: Transakcyjna Współbieżność Read-Modify-Write (Anti-TOCTOU), Odblokowanie Sesji PHP i Strażnicy In-Flight](#krok-20-transakcyjna-współbieżność-read-modify-write-anti-toctou-odblokowanie-sesji-php-i-strażnicy-in-flight)
+   - [Krok 21: Dwutrybowy Ranking Trafności Wyszukiwania (Search Relevance Ranking vs. A–Z)](#krok-21-dwutrybowy-ranking-trafności-wyszukiwania-search-relevance-ranking-vs-az)
 
 ---
 
@@ -430,6 +432,40 @@ Wzorzec wypracowany w **TwojaStronaWWW**, **Fuego Lingua** oraz **Kato Salsa Hub
    - Odpowiedzi na frontendzie są parsowane przez `formatMarkdown()` (escapowanie `& < > " '` przed renderowaniem pogrubień, list i linków).
    - W razie braku internetu po stronie klienta lub chwilowej niedostępności sieci, widget automatycznie odpowiada z lokalnej funkcji `getLocalFallbackAnswer()` połączonej z wyszukiwarką `searchKnowledgeEntries()`.
    - Ruch, trafienia w Cache RAG, pozyskane leady (`ai_router_leads_total`), latencja `p50`/`p95`, wykorzystanie modeli i powody odrzuceń są monitorowane w czasie rzeczywistym na dashboardzie Grafany **AI Router - Gemini Proxy Monitor** (`uid: ai-router-overview`, bez logowania treści pytań ani adresów IP zgodnie z ISO 27001).
+
+---
+
+### Krok 20: Transakcyjna Współbieżność Read-Modify-Write (Anti-TOCTOU), Odblokowanie Sesji PHP i Strażnicy In-Flight
+Wzorzec wypracowany w **Kato Salsa Hub** i wbudowany w `api/leads-store.php` oraz `assets/js/main.js`:
+1. **Eliminacja luki TOCTOU (Lost Update) przy operacjach Read-Modify-Write w PHP (`update_json_file`):**
+   - Rozdzielenie odczytu (`read_json_file` z `LOCK_SH`) i zapisu (`save_json_file` z `LOCK_EX`) otwiera okno wyścigu: gdy dwóch użytkowników lub moderatorów zapisze zmianę w tej samej milisekundzie, drugi proces nadpisze plik stanem sprzed modyfikacji pierwszego.
+   - Wszystkie mutacje plików JSON muszą korzystać z funkcji `update_json_file(string $file, callable $mutator, bool $purgeCache = true)`, która utrzymuje **jedną nieprzerwaną blokadę wyłączną `flock($fp, LOCK_EX)`** na cały cykl:
+     `fopen('c+b') -> flock(LOCK_EX) -> stream_get_contents -> $mutator($data) -> kopia .bak -> ftruncate(0) -> fwrite -> fflush -> flock(LOCK_UN)`.
+2. **Sprawdzanie rozmiaru nowego pliku CSV wewnątrz sekcji krytycznej `LOCK_EX`:**
+   - W funkcji `save_lead()` sprawdzenie, czy plik CSV wymaga dopisania wiersza nagłówkowego (`clearstatcache` + `fstat($fp)['size'] === 0`), odbywa się wyłącznie **po** założeniu `flock($fp, LOCK_EX)`, co wyklucza duplikację nagłówka CSV przy równoczesnych zgłoszeniach na początku miesiąca.
+3. **Wczesne zwalnianie blokady sesji PHP (`@session_write_close()`):**
+   - Domyślny mechanizm sesji PHP blokuje plik sesji do końca skryptu. W każdym endpoincie korzystającym z `session_start()` należy wywołać `@session_write_close()` natychmiast po odczytaniu/zapisaniu `$_SESSION`, zanim skrypt przejdzie do operacji plikowych lub wywołań sieciowych cURL (np. osTicket / Webhooki).
+4. **Izolacja PID przy zapisach atomowych w Node.js (`writeFileAtomically`):**
+   - Przy generowaniu plików JSON/MD w skryptach Node.js nazwa pliku tymczasowego musi zawierać unikalny sufiks procesu i czasu (`${filePath}.${process.pid}.${Date.now()}.${rand}.tmp`) przed atomowym `fs.renameSync()`.
+5. **Strażnicy In-Flight na frontendzie (`inFlightMutations` / `isSubmitting`):**
+   - Formularze (`initContactForm`) oraz przyciski akcji moderacyjnych używają blokady *in-flight* (`Set` / flaga `isSubmitting` zwalniana w `finally`), uniemożliwiając wysłanie zduplikowanych żądań `POST` przy podwójnym kliknięciu.
+6. **Kolejkowanie wdrożeń i zadań cron w GitHub Actions (`concurrency`):**
+   - Potoki wdrożeniowe (`deploy-*.yml`) oraz cykliczne raporty (`weekly-report.yml`) stosują `concurrency` z `cancel-in-progress: false` (kolejkowanie transferów SFTP) oraz wykluczają pliki żywego stanu (`--exclude-glob` dla kolejek moderacji, kont i liczników rate-limitera).
+
+---
+
+### Krok 21: Dwutrybowy Ranking Trafności Wyszukiwania (Search Relevance Ranking vs. A–Z)
+Wzorzec UX wypracowany w encyklopedii **Salsopedia** (`katosalsahub.pl`) i udostępniony w `assets/js/main.js` (`computeSearchRelevance`, `sortAndFilterByRelevance`):
+1. **Dwa tryby sortowania:**
+   - **Tryb przeglądania (gdy pole wyszukiwania jest puste):** Wyniki sortowane są alfabetycznie **A–Z** (`localeCompare(..., 'pl', { sensitivity: 'base' })`), co ułatwia przeglądanie katalogu.
+   - **Tryb wyszukiwania (gdy użytkownik wpisze frazę):** Wyniki sortowane są malejąco według punktacji trafności (`computeSearchRelevance`), a kolejność alfabetyczna pełni wyłącznie rolę *tie-breakera* przy równej liczbie punktów.
+2. **Hierarchia wag punktowych (`computeSearchRelevance`):**
+   - **`100 pkt` — Dokładne dopasowanie tytułu (Exact Title Match):** np. hasło `Timba` dla zapytania `"timba"`.
+   - **`90 pkt` — Dokładne dopasowanie głównego członu tytułu (przed nawiasem/ukośnikiem/myślnikiem):** np. `Clave (Rytm)` dla `"clave"` lub `Bongó (Bongosy)` dla `"bongo"`.
+   - **`80 pkt` — Dopasowanie prefiksowe tytułu (Prefix Match):** np. `Timbales (Pailas)` dla `"timba"`.
+   - **`75 pkt` — Dopasowanie prefiksowe polskiego rdzenia fleksyjnego (`getPolishStem`):** np. `Timbero / Timbera` dla `"timba"`.
+   - **`70–60 pkt` — Pełne słowo, podciąg lub odmiana fleksyjna w dalszej części tytułu:** np. `Bombo i Songo Drumset (Perkusja w Timbie)` (`60 pkt`).
+   - **`25–20 pkt` — Wystąpienie wyłącznie w treści definicji/opisu lub autorze:** hasła powiązane kontekstowo prezentowane są zawsze **za** wszystkimi trafieniami tytułowymi.
 
 ---
 *Dokumentacja inżynierska platformy TwojaStronaWWW.*

@@ -313,8 +313,15 @@ export function initContactForm(doc = document, storage = typeof localStorage !=
     el.addEventListener?.('change', saveDraft);
   });
 
+  const submitBtn = form.querySelector?.('button[type="submit"], input[type="submit"]');
+  let isSubmitting = false;
+
   form.addEventListener?.('submit', async (e) => {
     if (typeof e?.preventDefault === 'function') e.preventDefault();
+    if (isSubmitting) return;
+    isSubmitting = true;
+    if (submitBtn) submitBtn.disabled = true;
+
     if (errorDiv && errorDiv.style) errorDiv.style.display = 'none';
     if (successMsg && successMsg.style) successMsg.style.display = 'none';
 
@@ -351,10 +358,115 @@ export function initContactForm(doc = document, storage = typeof localStorage !=
         if (errorDiv.style) errorDiv.style.display = 'block';
         errorDiv.textContent = 'Błąd połączenia. Spróbuj ponownie.';
       }
+    } finally {
+      isSubmitting = false;
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 
   return { form, saveDraft, restoreDraft };
+}
+
+/**
+ * Normalizuje ciąg wyszukiwania (usuwa znaki diakrytyczne PL/ES, zamienia ł -> l i małe litery)
+ */
+export function normalizeSearchString(str) {
+  if (!str) return '';
+  return String(str)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ł/g, 'l')
+    .trim();
+}
+
+/**
+ * Lekki polski stemmer odcinający najczęstsze końcówki fleksyjne rzeczowników i przymiotników
+ */
+export function getPolishStem(normWord) {
+  if (!normWord || normWord.length < 4) return normWord;
+  return normWord.replace(/(ach|ami|owi|iem|om|ie|ow|ej|ym|im|ia|iu|ek|ka|ki|ce|ke|y|a|e|i|u|o)$/, '');
+}
+
+/**
+ * Oblicza wynik trafności wyszukiwania (Search Relevance Ranking):
+ * - 100 pkt: dokładne dopasowanie całego tytułu (np. "Timba" === "timba")
+ * -  90 pkt: dokładne dopasowanie głównego członu tytułu przed nawiasem/ukośnikiem/myślnikiem
+ * -  80 pkt: tytuł zaczyna się od szukanej frazy (Prefix Match)
+ * -  75 pkt: tytuł zaczyna się od rdzenia fleksyjnego szukanej frazy
+ * -  70 pkt: szukana fraza występuje jako pełne słowo w głównym tytule
+ * -  65 pkt: szukana fraza występuje bezpośrednio w tytule (w tym w nawiasie)
+ * -  60 pkt: rdzeń fleksyjny szukanej frazy występuje w tytule
+ * -  25 pkt: dopasowanie w treści/opisie oraz w tagach/podkategorii
+ * -  20 pkt: dopasowanie wyłącznie w treści definicji/opisu lub autorze
+ * -   0 pkt: brak dopasowania
+ */
+export function computeSearchRelevance(item, rawQuery) {
+  if (!item || !rawQuery) return 0;
+  const qRaw = String(rawQuery).trim().toLowerCase();
+  const qNorm = normalizeSearchString(qRaw);
+  if (!qNorm) return 0;
+
+  const qStem = getPolishStem(qNorm);
+  const titleRaw = String(item.term || item.title || item.name || '').trim().toLowerCase();
+  const titleNorm = normalizeSearchString(titleRaw);
+  const baseTitleNorm = titleNorm.split(/[(\/—–-]/)[0].trim();
+
+  if (titleRaw === qRaw || titleNorm === qNorm) return 100;
+  if (baseTitleNorm && baseTitleNorm === qNorm) return 90;
+  if (titleRaw.startsWith(qRaw) || titleNorm.startsWith(qNorm)) return 80;
+  if (qStem && qStem.length >= 4 && titleNorm.startsWith(qStem)) return 75;
+
+  const escapedQ = qNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const wordRegex = new RegExp(`(?:^|[\\s(\\/„"'-])${escapedQ}(?:$|[\\s)\\/”"',.-])`, 'i');
+  if (baseTitleNorm && wordRegex.test(baseTitleNorm)) return 70;
+
+  if (titleRaw.includes(qRaw) || titleNorm.includes(qNorm)) return 65;
+  if (qStem && qStem.length >= 4 && titleNorm.includes(qStem)) return 60;
+
+  const bodyRaw = String(item.definition || item.description || item.content || '').toLowerCase();
+  const bodyNorm = normalizeSearchString(bodyRaw);
+  const authorNorm = normalizeSearchString(item.author || '');
+
+  if (bodyRaw.includes(qRaw) || bodyNorm.includes(qNorm) || authorNorm.includes(qNorm)) {
+    const subs = Array.isArray(item.subcategory)
+      ? item.subcategory
+      : (item.subcategory ? [item.subcategory] : []);
+    const subMatch = subs.some(s => normalizeSearchString(s).includes(qNorm));
+    return subMatch ? 25 : 20;
+  }
+
+  return 0;
+}
+
+/**
+ * Dwutrybowy silnik filtrowania i sortowania wyników (Search Relevance Ranking vs. A–Z):
+ * - Gdy zapytanie jest puste: zwraca listę posortowaną alfabetycznie A–Z (localeCompare 'pl').
+ * - Gdy zapytanie jest aktywne: filtruje i sortuje wyniki malejąco wg wagi trafności (tytuł przed opisem).
+ */
+export function sortAndFilterByRelevance(items, rawQuery) {
+  const list = Array.isArray(items) ? [...items] : [];
+  const q = String(rawQuery || '').trim();
+  const getTitle = (x) => String(x?.term || x?.title || x?.name || '');
+
+  if (!q) {
+    return list.sort((a, b) => getTitle(a).localeCompare(getTitle(b), 'pl', { sensitivity: 'base' }));
+  }
+
+  const scored = [];
+  for (const item of list) {
+    const score = computeSearchRelevance(item, q);
+    if (score > 0) {
+      scored.push({ item, score });
+    }
+  }
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return getTitle(a.item).localeCompare(getTitle(b.item), 'pl', { sensitivity: 'base' });
+  });
+
+  return scored.map(entry => entry.item);
 }
 
 // Inicjalizacja automatyczna w przeglądarce
